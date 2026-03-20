@@ -42,6 +42,13 @@ export default function Messages({ flow, messages_meta }: MessagesPropTypes) {
         <div className="contentview">
             <div className="controls">
                 <h5>{messages_meta.count} Messages</h5>
+                <button
+                    className="btn btn-default btn-sm"
+                    style={{ marginLeft: "10px", marginRight: "auto" }}
+                    onClick={() => window.open(`/ai-analyzer?flow_id=${flow.id}`, "_blank")}
+                >
+                    <i className="fa fa-magic" /> Analyze AI API
+                </button>
                 <ViewSelector
                     value={contentView}
                     onChange={(cv) =>

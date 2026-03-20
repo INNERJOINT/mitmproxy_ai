@@ -367,6 +367,10 @@ class IndexHandler(RequestHandler):
 
     post = get  # login form
 
+class AIAnalyzerHandler(RequestHandler):
+    def get(self):
+        self.render("../ai-analyzer.html")
+
 
 class FilterHelp(RequestHandler):
     def get(self):
@@ -886,6 +890,7 @@ class GZipContentAndFlowFiles(tornado.web.GZipContentEncoding):
 
 handlers = [
     (r"/", IndexHandler),
+    (r"/ai-analyzer(?:.html)?", AIAnalyzerHandler),
     (r"/filter-help(?:\.json)?", FilterHelp),
     (r"/updates", ClientConnection),
     (r"/commands(?:\.json)?", Commands),

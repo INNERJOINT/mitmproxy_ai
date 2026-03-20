@@ -15,6 +15,10 @@ export default defineConfig({
         outDir: "../mitmproxy/tools/web",
         assetsDir: "static",
         rollupOptions: {
+            input: {
+                main: 'index.html',
+                'ai-analyzer': 'ai-analyzer.html'
+            },
             output: {
                 manualChunks: (id) => {
                     if (

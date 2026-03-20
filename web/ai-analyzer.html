@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>mitmweb - AI API Analyzer</title>
+        <link rel="icon" href="static/favicon.ico" type="image/x-icon" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="stylesheet" href="src/css/vendor.less" />
+        <link rel="stylesheet" href="src/css/app.less" />
+        <script type="module" src="src/js/ai-analyzer-app.tsx"></script>
+        <style>
+            html, body {
+                overflow: auto !important;
+                overflow-y: scroll !important;
+                height: auto !important;
+                min-height: 100% !important;
+            }
+            #ai-analyzer-root {
+                height: auto !important;
+            }
+        </style>
+    </head>
+    <body style="background: #f5f5f5; margin: 0; padding: 0;">
+        <div id="ai-analyzer-root"></div>
+    </body>
+</html>

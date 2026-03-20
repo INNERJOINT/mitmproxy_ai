@@ -23,7 +23,7 @@ function RequestLine({ flow }: RequestLineProps) {
     const dispatch = useAppDispatch();
 
     return (
-        <div className="first-line request-line">
+        <div className="first-line request-line" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
                 <ValidateEditor
                     content={flow.request.method}
@@ -61,6 +61,12 @@ function RequestLine({ flow }: RequestLineProps) {
                     selectAllOnClick={true}
                 />
             </div>
+            <button 
+                className="btn btn-xs btn-primary"
+                onClick={() => window.open(`/ai-analyzer?flow_id=${flow.id}`, "_blank")}
+            >
+                Analyze AI API <i className="fa fa-external-link" style={{ marginLeft: "4px" }}></i>
+            </button>
         </div>
     );
 }
@@ -73,46 +79,54 @@ function ResponseLine({ flow }: ResponseLineProps) {
     const dispatch = useAppDispatch();
 
     return (
-        <div className="first-line response-line">
-            <ValidateEditor
-                content={flow.response.http_version}
-                onEditDone={(nextVer) =>
-                    dispatch(
-                        flowActions.update(flow, {
-                            response: { http_version: nextVer },
-                        }),
-                    )
-                }
-                isValid={isValidHttpVersion}
-                selectAllOnClick={true}
-            />
-            &nbsp;
-            <ValidateEditor
-                content={flow.response.status_code + ""}
-                onEditDone={(code) =>
-                    dispatch(
-                        flowActions.update(flow, {
-                            response: { code: parseInt(code) },
-                        }),
-                    )
-                }
-                isValid={(code) => /^\d+$/.test(code)}
-                selectAllOnClick={true}
-            />
-            {flow.response.http_version !== "HTTP/2.0" && (
-                <>
-                    &nbsp;
-                    <ValueEditor
-                        content={flow.response.reason}
-                        onEditDone={(msg) =>
-                            dispatch(
-                                flowActions.update(flow, { response: { msg } }),
-                            )
-                        }
-                        selectAllOnClick={true}
-                    />
-                </>
-            )}
+        <div className="first-line response-line" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+                <ValidateEditor
+                    content={flow.response.http_version}
+                    onEditDone={(nextVer) =>
+                        dispatch(
+                            flowActions.update(flow, {
+                                response: { http_version: nextVer },
+                            }),
+                        )
+                    }
+                    isValid={isValidHttpVersion}
+                    selectAllOnClick={true}
+                />
+                &nbsp;
+                <ValidateEditor
+                    content={flow.response.status_code + ""}
+                    onEditDone={(code) =>
+                        dispatch(
+                            flowActions.update(flow, {
+                                response: { code: parseInt(code) },
+                            }),
+                        )
+                    }
+                    isValid={(code) => /^\d+$/.test(code)}
+                    selectAllOnClick={true}
+                />
+                {flow.response.http_version !== "HTTP/2.0" && (
+                    <>
+                        &nbsp;
+                        <ValueEditor
+                            content={flow.response.reason}
+                            onEditDone={(msg) =>
+                                dispatch(
+                                    flowActions.update(flow, { response: { msg } }),
+                                )
+                            }
+                            selectAllOnClick={true}
+                        />
+                    </>
+                )}
+            </div>
+            <button 
+                className="btn btn-xs btn-primary"
+                onClick={() => window.open(`/ai-analyzer?flow_id=${flow.id}`, "_blank")}
+            >
+                Analyze AI API <i className="fa fa-external-link" style={{ marginLeft: "4px" }}></i>
+            </button>
         </div>
     );
 }

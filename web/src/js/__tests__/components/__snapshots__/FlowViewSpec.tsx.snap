@@ -458,6 +458,15 @@ exports[`FlowView 3`] = `
           <h5>
             3 Messages
           </h5>
+          <button
+            class="btn btn-default btn-sm"
+            style="margin-left: 10px; margin-right: auto;"
+          >
+            <i
+              class="fa fa-magic"
+            />
+             Analyze AI API
+          </button>
           <a
             class="btn btn-default btn-xs"
             href="#"
@@ -1216,6 +1225,15 @@ exports[`FlowView 8`] = `
           <h5>
             2 Messages
           </h5>
+          <button
+            class="btn btn-default btn-sm"
+            style="margin-left: 10px; margin-right: auto;"
+          >
+            <i
+              class="fa fa-magic"
+            />
+             Analyze AI API
+          </button>
           <a
             class="btn btn-default btn-xs"
             href="#"
@@ -1720,6 +1738,15 @@ exports[`FlowView 13`] = `
           <h5>
             2 Messages
           </h5>
+          <button
+            class="btn btn-default btn-sm"
+            style="margin-left: 10px; margin-right: auto;"
+          >
+            <i
+              class="fa fa-magic"
+            />
+             Analyze AI API
+          </button>
           <a
             class="btn btn-default btn-xs"
             href="#"
