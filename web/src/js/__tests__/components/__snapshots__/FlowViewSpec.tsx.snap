@@ -64,6 +64,7 @@ exports[`FlowView 1`] = `
     >
       <div
         class="first-line request-line"
+        style="display: flex; justify-content: space-between; align-items: center;"
       >
         <div>
           <span
@@ -87,6 +88,15 @@ exports[`FlowView 1`] = `
             HTTP/1.1
           </span>
         </div>
+        <button
+          class="btn btn-xs btn-primary"
+        >
+          Analyze AI API 
+          <i
+            class="fa fa-external-link"
+            style="margin-left: 4px;"
+          />
+        </button>
       </div>
       <div
         class="kv-editor headers"
@@ -257,27 +267,39 @@ exports[`FlowView 2`] = `
     >
       <div
         class="first-line response-line"
+        style="display: flex; justify-content: space-between; align-items: center;"
       >
-        <span
-          class="inline-input has-success"
-          tabindex="0"
+        <div>
+          <span
+            class="inline-input has-success"
+            tabindex="0"
+          >
+            HTTP/1.1
+          </span>
+           
+          <span
+            class="inline-input has-success"
+            tabindex="0"
+          >
+            200
+          </span>
+           
+          <span
+            class="inline-input"
+            tabindex="0"
+          >
+            OK
+          </span>
+        </div>
+        <button
+          class="btn btn-xs btn-primary"
         >
-          HTTP/1.1
-        </span>
-         
-        <span
-          class="inline-input has-success"
-          tabindex="0"
-        >
-          200
-        </span>
-         
-        <span
-          class="inline-input"
-          tabindex="0"
-        >
-          OK
-        </span>
+          Analyze AI API 
+          <i
+            class="fa fa-external-link"
+            style="margin-left: 4px;"
+          />
+        </button>
       </div>
       <div
         class="kv-editor headers"

@@ -22,18 +22,22 @@ export function parseSingleWsMessage(msg: WsMessage): AIAnalyzerEvent[] {
         return matchedParser.parse(msg, parsedJson);
     } else {
         // Fallback for completely unrecognized messages
-        return [{
-            id: `${msg.timestamp}-${Math.random()}`,
-            timestamp: msg.timestamp,
-            direction: msg.from_client ? "outgoing" : "incoming",
-            provider: "Unknown",
-            type: "unknown",
-            raw: parsedJson || msg.text,
-        }];
+        return [
+            {
+                id: `${msg.timestamp}-${Math.random()}`,
+                timestamp: msg.timestamp,
+                direction: msg.from_client ? "outgoing" : "incoming",
+                provider: "Unknown",
+                type: "unknown",
+                raw: parsedJson || msg.text,
+            },
+        ];
     }
 }
 
-export function parseAIProtocolMessages(rawMessages: WsMessage[]): AIAnalyzerEvent[] {
+export function parseAIProtocolMessages(
+    rawMessages: WsMessage[],
+): AIAnalyzerEvent[] {
     const results: AIAnalyzerEvent[] = [];
     for (const msg of rawMessages) {
         results.push(...parseSingleWsMessage(msg));

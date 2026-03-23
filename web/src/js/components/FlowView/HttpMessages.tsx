@@ -23,7 +23,14 @@ function RequestLine({ flow }: RequestLineProps) {
     const dispatch = useAppDispatch();
 
     return (
-        <div className="first-line request-line" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div
+            className="first-line request-line"
+            style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+            }}
+        >
             <div>
                 <ValidateEditor
                     content={flow.request.method}
@@ -61,11 +68,17 @@ function RequestLine({ flow }: RequestLineProps) {
                     selectAllOnClick={true}
                 />
             </div>
-            <button 
+            <button
                 className="btn btn-xs btn-primary"
-                onClick={() => window.open(`/ai-analyzer?flow_id=${flow.id}`, "_blank")}
+                onClick={() =>
+                    window.open(`/ai-analyzer?flow_id=${flow.id}`, "_blank")
+                }
             >
-                Analyze AI API <i className="fa fa-external-link" style={{ marginLeft: "4px" }}></i>
+                Analyze AI API{" "}
+                <i
+                    className="fa fa-external-link"
+                    style={{ marginLeft: "4px" }}
+                ></i>
             </button>
         </div>
     );
@@ -79,7 +92,14 @@ function ResponseLine({ flow }: ResponseLineProps) {
     const dispatch = useAppDispatch();
 
     return (
-        <div className="first-line response-line" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div
+            className="first-line response-line"
+            style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+            }}
+        >
             <div>
                 <ValidateEditor
                     content={flow.response.http_version}
@@ -113,7 +133,9 @@ function ResponseLine({ flow }: ResponseLineProps) {
                             content={flow.response.reason}
                             onEditDone={(msg) =>
                                 dispatch(
-                                    flowActions.update(flow, { response: { msg } }),
+                                    flowActions.update(flow, {
+                                        response: { msg },
+                                    }),
                                 )
                             }
                             selectAllOnClick={true}
@@ -121,11 +143,17 @@ function ResponseLine({ flow }: ResponseLineProps) {
                     </>
                 )}
             </div>
-            <button 
+            <button
                 className="btn btn-xs btn-primary"
-                onClick={() => window.open(`/ai-analyzer?flow_id=${flow.id}`, "_blank")}
+                onClick={() =>
+                    window.open(`/ai-analyzer?flow_id=${flow.id}`, "_blank")
+                }
             >
-                Analyze AI API <i className="fa fa-external-link" style={{ marginLeft: "4px" }}></i>
+                Analyze AI API{" "}
+                <i
+                    className="fa fa-external-link"
+                    style={{ marginLeft: "4px" }}
+                ></i>
             </button>
         </div>
     );

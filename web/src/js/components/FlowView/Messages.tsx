@@ -45,7 +45,9 @@ export default function Messages({ flow, messages_meta }: MessagesPropTypes) {
                 <button
                     className="btn btn-default btn-sm"
                     style={{ marginLeft: "10px", marginRight: "auto" }}
-                    onClick={() => window.open(`/ai-analyzer?flow_id=${flow.id}`, "_blank")}
+                    onClick={() =>
+                        window.open(`/ai-analyzer?flow_id=${flow.id}`, "_blank")
+                    }
                 >
                     <i className="fa fa-magic" /> Analyze AI API
                 </button>

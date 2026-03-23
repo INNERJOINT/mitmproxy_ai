@@ -11,7 +11,11 @@ export class AnthropicAdapter implements AIProtocolParser {
             }
         } else if (!msg.from_client) {
             // Check for typical Anthropic SSE Stream
-            if (msg.text && (msg.text.includes("event: message_start") || msg.text.includes("event: content_block_delta"))) {
+            if (
+                msg.text &&
+                (msg.text.includes("event: message_start") ||
+                    msg.text.includes("event: content_block_delta"))
+            ) {
                 return true;
             }
         }
@@ -30,11 +34,16 @@ export class AnthropicAdapter implements AIProtocolParser {
                         let content = "";
                         if (Array.isArray(m.content)) {
                             // Claude system prompt reminder or text bits
-                            content = m.content.map((c: any) => c.text || JSON.stringify(c)).join("\n");
+                            content = m.content
+                                .map((c: any) => c.text || JSON.stringify(c))
+                                .join("\n");
                         } else {
-                            content = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+                            content =
+                                typeof m.content === "string"
+                                    ? m.content
+                                    : JSON.stringify(m.content);
                         }
-                        
+
                         // Anthropic often puts <system-reminder> inside user messages for CLI tools
                         if (content.includes("<system-reminder>")) {
                             events.push({
@@ -44,7 +53,7 @@ export class AnthropicAdapter implements AIProtocolParser {
                                 provider: this.name,
                                 type: "system_prompt",
                                 content: content,
-                                raw: m
+                                raw: m,
                             });
                         } else {
                             events.push({
@@ -54,7 +63,7 @@ export class AnthropicAdapter implements AIProtocolParser {
                                 provider: this.name,
                                 type: "user_message",
                                 content: content,
-                                raw: m
+                                raw: m,
                             });
                         }
                     } else if (m.role === "assistant") {
@@ -64,8 +73,15 @@ export class AnthropicAdapter implements AIProtocolParser {
                             direction: "outgoing",
                             provider: this.name,
                             type: "assistant_stream",
-                            content: Array.isArray(m.content) ? m.content.map((c: any) => c.text || c.thinking || "").join("\n") : m.content,
-                            raw: m
+                            content: Array.isArray(m.content)
+                                ? m.content
+                                      .map(
+                                          (c: any) =>
+                                              c.text || c.thinking || "",
+                                      )
+                                      .join("\n")
+                                : m.content,
+                            raw: m,
                         });
                     }
                 });
@@ -78,8 +94,11 @@ export class AnthropicAdapter implements AIProtocolParser {
                     direction: "outgoing",
                     provider: this.name,
                     type: "system_prompt",
-                    content: typeof parsedJson.system === "string" ? parsedJson.system : JSON.stringify(parsedJson.system, null, 2),
-                    raw: parsedJson.system
+                    content:
+                        typeof parsedJson.system === "string"
+                            ? parsedJson.system
+                            : JSON.stringify(parsedJson.system, null, 2),
+                    raw: parsedJson.system,
                 });
             }
 
@@ -90,16 +109,15 @@ export class AnthropicAdapter implements AIProtocolParser {
                 provider: this.name,
                 type: "meta",
                 content: `Model: ${parsedJson.model}`,
-                raw: { model: parsedJson.model }
+                raw: { model: parsedJson.model },
             });
-            
+
             return events;
         }
 
         if (!msg.from_client) {
             // Attempt to parse SSE chunks
             const lines = msg.text.split("\n");
-            let insideMessage = false;
             let currentEventName = "";
 
             for (const line of lines) {
@@ -119,11 +137,15 @@ export class AnthropicAdapter implements AIProtocolParser {
                                 provider: this.name,
                                 type: "meta",
                                 content: `Assistant stream started (Role: ${data.message?.role})`,
-                                raw: data
+                                raw: data,
                             });
                         } else if (currentEventName === "content_block_delta") {
                             const delta = data.delta;
-                            if (delta && delta.type === "text_delta" && delta.text) {
+                            if (
+                                delta &&
+                                delta.type === "text_delta" &&
+                                delta.text
+                            ) {
                                 events.push({
                                     id: `${msg.timestamp}-delta-${Math.random()}`,
                                     timestamp: msg.timestamp,
@@ -131,9 +153,13 @@ export class AnthropicAdapter implements AIProtocolParser {
                                     provider: this.name,
                                     type: "assistant_stream",
                                     content: delta.text,
-                                    raw: data
+                                    raw: data,
                                 });
-                            } else if (delta && delta.type === "thinking_delta" && delta.thinking) {
+                            } else if (
+                                delta &&
+                                delta.type === "thinking_delta" &&
+                                delta.thinking
+                            ) {
                                 events.push({
                                     id: `${msg.timestamp}-think-${Math.random()}`,
                                     timestamp: msg.timestamp,
@@ -141,7 +167,7 @@ export class AnthropicAdapter implements AIProtocolParser {
                                     provider: this.name,
                                     type: "meta",
                                     content: `[Thinking...]\n${delta.thinking}`,
-                                    raw: data
+                                    raw: data,
                                 });
                             }
                         } else if (currentEventName === "message_delta") {
@@ -153,11 +179,11 @@ export class AnthropicAdapter implements AIProtocolParser {
                                     provider: this.name,
                                     type: "meta",
                                     content: `Usage: In ${data.usage.input_tokens || 0}, Out ${data.usage.output_tokens || 0}`,
-                                    raw: data
+                                    raw: data,
                                 });
                             }
                         }
-                    } catch (e) {
+                    } catch {
                         // ignore unparseable data line
                     }
                 }
@@ -172,7 +198,7 @@ export class AnthropicAdapter implements AIProtocolParser {
                     provider: this.name,
                     type: "unknown",
                     content: "Could not extract stream chunks.",
-                    raw: msg.text
+                    raw: msg.text,
                 });
             }
 

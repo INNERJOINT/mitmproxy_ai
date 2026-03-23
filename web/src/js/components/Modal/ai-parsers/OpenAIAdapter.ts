@@ -7,7 +7,14 @@ export class OpenAIAdapter implements AIProtocolParser {
         // We detect OpenAI Realtime events typically by having a `type` string like "session.update", "response.create", etc.
         // Or "codex.rate_limits" for codex specific WS messages.
         if (parsedJson && typeof parsedJson.type === "string") {
-            const types = ["response.", "session.", "codex.", "input_audio_buffer.", "conversation.", "rate_limits"];
+            const types = [
+                "response.",
+                "session.",
+                "codex.",
+                "input_audio_buffer.",
+                "conversation.",
+                "rate_limits",
+            ];
             return types.some((prefix) => parsedJson.type.startsWith(prefix));
         }
         return false;
@@ -15,7 +22,9 @@ export class OpenAIAdapter implements AIProtocolParser {
 
     parse(msg: WsMessage, parsedJson?: any): AIAnalyzerEvent[] {
         const events: AIAnalyzerEvent[] = [];
-        const direction: "outgoing" | "incoming" = msg.from_client ? "outgoing" : "incoming";
+        const direction: "outgoing" | "incoming" = msg.from_client
+            ? "outgoing"
+            : "incoming";
         const baseEvent = {
             id: `${msg.timestamp}-${Math.random()}`,
             timestamp: msg.timestamp,
@@ -51,8 +60,11 @@ export class OpenAIAdapter implements AIProtocolParser {
             const inputArr = parsedJson.input || parsedJson.response?.input;
             if (Array.isArray(inputArr)) {
                 for (const item of inputArr) {
-                    if (item.role === 'user' && Array.isArray(item.content)) {
-                        const textContent = item.content.find((c: any) => c.type === "input_text" || c.type === "text")?.text;
+                    if (item.role === "user" && Array.isArray(item.content)) {
+                        const textContent = item.content.find(
+                            (c: any) =>
+                                c.type === "input_text" || c.type === "text",
+                        )?.text;
                         if (textContent) {
                             events.push({
                                 ...baseEvent,
@@ -71,7 +83,7 @@ export class OpenAIAdapter implements AIProtocolParser {
             }
 
             if (events.length === 0) {
-                 events.push({
+                events.push({
                     ...baseEvent,
                     type: "user_message", // Triggers generation
                     content: "<Trigger Response>",
@@ -80,7 +92,9 @@ export class OpenAIAdapter implements AIProtocolParser {
         } else if (type === "conversation.item.create") {
             const item = parsedJson.item;
             if (item && item.role === "user" && Array.isArray(item.content)) {
-                const textContent = item.content.find((c: any) => c.type === "input_text" || c.type === "text")?.text;
+                const textContent = item.content.find(
+                    (c: any) => c.type === "input_text" || c.type === "text",
+                )?.text;
                 if (textContent) {
                     events.push({
                         ...baseEvent,
@@ -108,7 +122,7 @@ export class OpenAIAdapter implements AIProtocolParser {
                 content: parsedJson.delta,
             });
         } else if (type === "response.done") {
-             events.push({
+            events.push({
                 ...baseEvent,
                 type: "meta",
                 content: `Response Complete`,

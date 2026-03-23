@@ -11,13 +11,13 @@ export interface AIAnalyzerEvent {
     timestamp: number;
     direction: "incoming" | "outgoing";
     provider: string; // Name of the parsed protocol (e.g., "OpenAI Realtime", "Unknown")
-    type: 
-        | "system_prompt" 
-        | "user_message" 
-        | "assistant_stream" 
-        | "tool_call" 
-        | "tool_result" 
-        | "meta" 
+    type:
+        | "system_prompt"
+        | "user_message"
+        | "assistant_stream"
+        | "tool_call"
+        | "tool_result"
+        | "meta"
         | "unknown";
     content?: string; // Text to display
     raw: any; // The original JSON or text
@@ -26,10 +26,10 @@ export interface AIAnalyzerEvent {
 // Interface for protocol parsers
 export interface AIProtocolParser {
     name: string;
-    
+
     // Quick check if this parser can understand the given message
     canParse(msg: WsMessage, parsedJson?: any): boolean;
-    
+
     // Converts the raw message into a standard AIAnalyzerEvent array
     parse(msg: WsMessage, parsedJson?: any): AIAnalyzerEvent[];
 }
