@@ -116,9 +116,19 @@ export class AnthropicAdapter implements AIProtocolParser {
         }
 
         if (!msg.from_client) {
-            // Attempt to parse SSE chunks
+            // Attempt to parse SSE chunks with content block grouping
             const lines = msg.text.split("\n");
             let currentEventName = "";
+
+            // Track content blocks: index -> { type, content, rawEvents }
+            const contentBlocks = new Map<
+                number,
+                {
+                    type: string;
+                    content: string;
+                    rawEvents: any[];
+                }
+            >();
 
             for (const line of lines) {
                 if (line.startsWith("event: ")) {
@@ -129,9 +139,10 @@ export class AnthropicAdapter implements AIProtocolParser {
 
                     try {
                         const data = JSON.parse(dataStr);
+
                         if (currentEventName === "message_start") {
                             events.push({
-                                id: `${msg.timestamp}-start-${Math.random()}`,
+                                id: `${msg.timestamp}-start`,
                                 timestamp: msg.timestamp,
                                 direction: "incoming",
                                 provider: this.name,
@@ -139,36 +150,77 @@ export class AnthropicAdapter implements AIProtocolParser {
                                 content: `Assistant stream started (Role: ${data.message?.role})`,
                                 raw: data,
                             });
+                        } else if (currentEventName === "content_block_start") {
+                            const block = data.content_block;
+                            const index = data.index;
+                            if (block) {
+                                contentBlocks.set(index, {
+                                    type: block.type,
+                                    content: block.thinking || block.text || "",
+                                    rawEvents: [data],
+                                });
+                            }
                         } else if (currentEventName === "content_block_delta") {
                             const delta = data.delta;
-                            if (
-                                delta &&
-                                delta.type === "text_delta" &&
-                                delta.text
-                            ) {
-                                events.push({
-                                    id: `${msg.timestamp}-delta-${Math.random()}`,
-                                    timestamp: msg.timestamp,
-                                    direction: "incoming",
-                                    provider: this.name,
-                                    type: "assistant_stream",
-                                    content: delta.text,
-                                    raw: data,
-                                });
-                            } else if (
-                                delta &&
-                                delta.type === "thinking_delta" &&
-                                delta.thinking
-                            ) {
-                                events.push({
-                                    id: `${msg.timestamp}-think-${Math.random()}`,
-                                    timestamp: msg.timestamp,
-                                    direction: "incoming",
-                                    provider: this.name,
-                                    type: "meta",
-                                    content: `[Thinking...]\n${delta.thinking}`,
-                                    raw: data,
-                                });
+                            const index = data.index;
+                            const block = contentBlocks.get(index);
+
+                            if (block) {
+                                block.rawEvents.push(data);
+                                if (delta?.type === "thinking_delta") {
+                                    block.content += delta.thinking || "";
+                                } else if (delta?.type === "text_delta") {
+                                    block.content += delta.text || "";
+                                } else if (delta?.type === "input_json_delta") {
+                                    block.content += delta.partial_json || "";
+                                }
+                            }
+                        } else if (currentEventName === "content_block_stop") {
+                            const index = data.index;
+                            const block = contentBlocks.get(index);
+
+                            if (block) {
+                                block.rawEvents.push(data);
+
+                                // Emit the complete block as a single event
+                                if (block.type === "thinking") {
+                                    events.push({
+                                        id: `${msg.timestamp}-thinking-${index}`,
+                                        timestamp: msg.timestamp,
+                                        direction: "incoming",
+                                        provider: this.name,
+                                        type: "meta",
+                                        content: `[Thinking]\n${block.content}`,
+                                        raw: block.rawEvents,
+                                    });
+                                } else if (block.type === "text") {
+                                    events.push({
+                                        id: `${msg.timestamp}-text-${index}`,
+                                        timestamp: msg.timestamp,
+                                        direction: "incoming",
+                                        provider: this.name,
+                                        type: "assistant_stream",
+                                        content: block.content,
+                                        raw: block.rawEvents,
+                                    });
+                                } else if (block.type === "tool_use") {
+                                    // Extract tool name from the first event
+                                    const startEvent = block.rawEvents[0];
+                                    const toolName =
+                                        startEvent?.content_block?.name ||
+                                        "unknown";
+                                    events.push({
+                                        id: `${msg.timestamp}-tool-${index}`,
+                                        timestamp: msg.timestamp,
+                                        direction: "incoming",
+                                        provider: this.name,
+                                        type: "tool_call",
+                                        content: `[Tool: ${toolName}]\n${block.content}`,
+                                        raw: block.rawEvents,
+                                    });
+                                }
+
+                                contentBlocks.delete(index);
                             }
                         } else if (currentEventName === "message_delta") {
                             if (data.usage) {
