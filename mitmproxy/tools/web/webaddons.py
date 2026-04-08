@@ -29,6 +29,13 @@ class WebAuth:
 
     def load(self, loader):
         loader.add_option(
+            "web_auth",
+            bool,
+            False,
+            "Require authentication to access the mitmweb user interface. "
+            "When enabled, a random token is generated on startup unless `web_password` is set.",
+        )
+        loader.add_option(
             "web_password",
             str,
             "",
@@ -55,10 +62,15 @@ class WebAuth:
                     "Consider using an argon2 hash for `web_password`  instead."
                 )
             self._password = ctx.options.web_password or secrets.token_hex(16)
+        if "web_password" in updated or "web_auth" in updated:
+            if ctx.options.web_password and not ctx.options.web_auth:
+                ctx.options.web_auth = True
 
     @property
     def web_url(self) -> str:
-        if ctx.options.web_password:
+        if not ctx.options.web_auth:
+            auth = ""
+        elif ctx.options.web_password:
             auth = ""  # We don't want to print plaintext passwords (and it doesn't work for argon2 anyhow).
         else:
             auth = f"?token={self._password}"
@@ -73,6 +85,8 @@ class WebAuth:
         return f"mitmproxy-auth-{ctx.options.web_port}"
 
     def is_valid_password(self, password: str) -> bool:
+        if not ctx.options.web_auth:
+            return True
         if self._password.startswith("$"):
             try:
                 return self._hasher.verify(self._password, password)
@@ -106,7 +120,7 @@ class WebAddon:
                 logger.info(
                     f"No web browser found. Please open a browser and point it to {master.web_url}",
                 )
-            if not success and not ctx.options.web_password:
+            if not success and ctx.options.web_auth and not ctx.options.web_password:
                 logger.info(
                     f"You can configure a fixed authentication token by setting the `web_password` option "
                     f"(https://docs.mitmproxy.org/stable/concepts-options/#web_password).",

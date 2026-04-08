@@ -61,6 +61,7 @@ class TestApp(tornado.testing.AsyncHTTPTestCase):
         m: webmaster.WebMaster = self.io_loop.asyncio_loop.run_until_complete(
             make_master()
         )
+        m.options.web_auth = True
         f = tflow.tflow(resp=True)
         f.id = "42"
         f.request.content = b"foo\nbar"
