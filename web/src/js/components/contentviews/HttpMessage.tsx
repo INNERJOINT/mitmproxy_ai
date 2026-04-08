@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useState } from "react";
 import type { HTTPFlow, HTTPMessage } from "../../flow";
 import { useAppDispatch, useAppSelector } from "../../ducks";
 import { setContentViewFor } from "../../ducks/ui/flow";
@@ -104,19 +104,11 @@ function HttpMessageView({ flow, message, startEdit }: HttpMessageViewProps) {
         (state) => state.ui.flow.contentViewFor[flow.id + part] || "Auto",
     );
 
-    const [maxLines, setMaxLines] = useState<number>(
-        useAppSelector((state) => state.options.content_view_lines_cutoff),
-    );
-    const showMore = useCallback(
-        () => setMaxLines(Math.max(1024, maxLines * 2)),
-        [maxLines],
-    );
-
     const contentViewData = useContentView(
         flow,
         message,
         contentView,
-        maxLines + 1,
+        undefined,
         message.contentHash,
     );
 
@@ -169,8 +161,6 @@ function HttpMessageView({ flow, message, startEdit }: HttpMessageViewProps) {
             )}
             <ContentRenderer
                 content={contentViewData?.text ?? ""}
-                maxLines={maxLines}
-                showMore={showMore}
             />
         </div>
     );

@@ -3,6 +3,14 @@ import { fetchApi } from "../utils";
 import { parseSingleWsMessage } from "./Modal/ai-parsers";
 import type { AIAnalyzerEvent, WsMessage } from "./Modal/ai-parsers/types";
 
+interface TokenStatistics {
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    totalTokens: number;
+    apiCallsWithTokens: number;
+    provider: string;
+}
+
 export default function AIAnalyzerPage() {
     const [rawMessages, setRawMessages] = useState<WsMessage[]>([]);
     const [flowMeta, setFlowMeta] = useState<any>(null);
@@ -280,6 +288,50 @@ export default function AIAnalyzerPage() {
         return <div key={index}>{content}</div>;
     };
 
+    const calculateTokenStatistics = (): TokenStatistics | null => {
+        let totalInputTokens = 0,
+            totalOutputTokens = 0,
+            apiCallsWithTokens = 0;
+
+        for (const msg of rawMessages) {
+            const events = parseSingleWsMessage(msg);
+            for (const event of events) {
+                if (
+                    event.type === "meta" &&
+                    event.provider === "Anthropic API"
+                ) {
+                    const usage = event.raw?.usage || event.raw?.message?.usage;
+                    if (usage) {
+                        const inputTokens =
+                            (Number(usage.input_tokens) || 0) +
+                            (Number(usage.cache_read_input_tokens) || 0) +
+                            (Number(usage.cache_creation_input_tokens) || 0);
+                        const outputTokens = Number(usage.output_tokens) || 0;
+                        if (inputTokens > 0 || outputTokens > 0) {
+                            totalInputTokens += inputTokens;
+                            totalOutputTokens += outputTokens;
+                            apiCallsWithTokens++;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (apiCallsWithTokens === 0) return null;
+
+        return {
+            totalInputTokens,
+            totalOutputTokens,
+            totalTokens: totalInputTokens + totalOutputTokens,
+            apiCallsWithTokens,
+            provider: "Anthropic API",
+        };
+    };
+
+    const tokenStats = useMemo(() => calculateTokenStatistics(), [rawMessages]);
+
+    const formatNumber = (num: number): string => num.toLocaleString();
+
     const renderOverview = () => {
         if (rawMessages.length === 0) {
             return (
@@ -447,6 +499,104 @@ export default function AIAnalyzerPage() {
                     </div>
                 </div>
 
+                {tokenStats && (
+                    <div
+                        style={{
+                            background: "#f8f9fa",
+                            padding: "20px",
+                            borderRadius: "8px",
+                            border: "1px solid #e9ecef",
+                            marginBottom: "30px",
+                        }}
+                    >
+                        <h3
+                            style={{
+                                marginTop: 0,
+                                fontSize: "16px",
+                                marginBottom: "15px",
+                                color: "#495057",
+                            }}
+                        >
+                            Token Statistics ({tokenStats.provider})
+                        </h3>
+                        <div
+                            style={{
+                                display: "grid",
+                                gridTemplateColumns: "200px 1fr",
+                                gap: "12px",
+                                fontSize: "14px",
+                            }}
+                        >
+                            <span
+                                style={{
+                                    color: "#6c757d",
+                                    fontWeight: "bold",
+                                }}
+                            >
+                                Total Input Tokens:
+                            </span>
+                            <span
+                                style={{
+                                    fontFamily: "monospace",
+                                    color: "#212529",
+                                }}
+                            >
+                                {formatNumber(tokenStats.totalInputTokens)}
+                            </span>
+                            <span
+                                style={{
+                                    color: "#6c757d",
+                                    fontWeight: "bold",
+                                }}
+                            >
+                                Total Output Tokens:
+                            </span>
+                            <span
+                                style={{
+                                    fontFamily: "monospace",
+                                    color: "#212529",
+                                }}
+                            >
+                                {formatNumber(tokenStats.totalOutputTokens)}
+                            </span>
+                            <span
+                                style={{
+                                    color: "#6c757d",
+                                    fontWeight: "bold",
+                                }}
+                            >
+                                Total Tokens:
+                            </span>
+                            <span
+                                style={{
+                                    fontFamily: "monospace",
+                                    color: "#212529",
+                                    fontSize: "16px",
+                                    fontWeight: "bold",
+                                }}
+                            >
+                                {formatNumber(tokenStats.totalTokens)}
+                            </span>
+                            <span
+                                style={{
+                                    color: "#6c757d",
+                                    fontWeight: "bold",
+                                }}
+                            >
+                                API Calls:
+                            </span>
+                            <span
+                                style={{
+                                    fontFamily: "monospace",
+                                    color: "#212529",
+                                }}
+                            >
+                                {formatNumber(tokenStats.apiCallsWithTokens)}
+                            </span>
+                        </div>
+                    </div>
+                )}
+
                 <h3
                     style={{
                         fontSize: "18px",
@@ -490,7 +640,8 @@ export default function AIAnalyzerPage() {
                                 const isUser = chat.role === "User";
                                 const isSystem = chat.role === "System Prompt";
                                 const isToolCall = chat.role === "Tool Call";
-                                const isToolResult = chat.role === "Tool Result";
+                                const isToolResult =
+                                    chat.role === "Tool Result";
                                 const isTool = isToolCall || isToolResult;
                                 return (
                                     <div

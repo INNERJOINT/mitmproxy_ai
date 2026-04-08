@@ -1,7 +1,6 @@
 import type { Flow, MessagesMeta } from "../../flow";
 import { useAppDispatch, useAppSelector } from "../../ducks";
 import * as React from "react";
-import { useCallback, useState } from "react";
 import type { ContentViewData } from "../contentviews/useContentView";
 import { useContentView } from "../contentviews/useContentView";
 import ViewSelector from "../contentviews/ViewSelector";
@@ -20,23 +19,14 @@ export default function Messages({ flow, messages_meta }: MessagesPropTypes) {
     const contentView = useAppSelector(
         (state) => state.ui.flow.contentViewFor[flow.id + "messages"] || "Auto",
     );
-    const [maxLines, setMaxLines] = useState<number>(
-        useAppSelector((state) => state.options.content_view_lines_cutoff),
-    );
-    const showMore = useCallback(
-        () => setMaxLines(Math.max(1024, maxLines * 2)),
-        [maxLines],
-    );
     const messages =
         useContentView(
             flow,
             "messages",
             contentView,
-            maxLines + 1,
+            undefined,
             flow.id + messages_meta.count,
         ) ?? [];
-
-    let remainingLines = maxLines;
 
     return (
         <div className="contentview">
@@ -67,7 +57,7 @@ export default function Messages({ flow, messages_meta }: MessagesPropTypes) {
                 const className = `fa fa-fw fa-arrow-${
                     d.from_client ? "right text-primary" : "left text-danger"
                 }`;
-                const renderer = (
+                return (
                     <div key={i}>
                         <small>
                             <i className={className} />
@@ -75,15 +65,9 @@ export default function Messages({ flow, messages_meta }: MessagesPropTypes) {
                                 {d.timestamp && formatTimeStamp(d.timestamp)}
                             </span>
                         </small>
-                        <ContentRenderer
-                            content={d.text}
-                            maxLines={remainingLines}
-                            showMore={showMore}
-                        />
+                        <ContentRenderer content={d.text} />
                     </div>
                 );
-                remainingLines -= d.text.split("\n").length;
-                return renderer;
             })}
         </div>
     );

@@ -2,8 +2,8 @@ import React from "react";
 
 type ContentRendererProps = {
     content: string;
-    maxLines: number;
-    showMore: () => void;
+    maxLines?: number;
+    showMore?: () => void;
 };
 
 const ContentRenderer = React.memo(function ContentRenderer({
@@ -17,7 +17,7 @@ const ContentRenderer = React.memo(function ContentRenderer({
     return (
         <pre>
             {content.split("\n").map((line, i) =>
-                i === maxLines ? (
+                maxLines !== undefined && showMore && i === maxLines ? (
                     <button
                         key="showmore"
                         onClick={showMore}
