@@ -120,12 +120,13 @@ export class AnthropicAdapter implements AIProtocolParser {
             const lines = msg.text.split("\n");
             let currentEventName = "";
 
-            // Track content blocks: index -> { type, content, rawEvents }
+            // Track content blocks: index -> { type, content, name, rawEvents }
             const contentBlocks = new Map<
                 number,
                 {
                     type: string;
                     content: string;
+                    name?: string;
                     rawEvents: any[];
                 }
             >();
@@ -154,9 +155,22 @@ export class AnthropicAdapter implements AIProtocolParser {
                             const block = data.content_block;
                             const index = data.index;
                             if (block) {
+                                let initialContent = "";
+                                if (block.type === "tool_use") {
+                                    // For tool_use, store the name and initial input
+                                    initialContent = JSON.stringify(
+                                        block.input || {},
+                                        null,
+                                        2,
+                                    );
+                                } else {
+                                    initialContent =
+                                        block.thinking || block.text || "";
+                                }
                                 contentBlocks.set(index, {
                                     type: block.type,
-                                    content: block.thinking || block.text || "",
+                                    content: initialContent,
+                                    name: block.name || "",
                                     rawEvents: [data],
                                 });
                             }
@@ -204,11 +218,8 @@ export class AnthropicAdapter implements AIProtocolParser {
                                         raw: block.rawEvents,
                                     });
                                 } else if (block.type === "tool_use") {
-                                    // Extract tool name from the first event
-                                    const startEvent = block.rawEvents[0];
-                                    const toolName =
-                                        startEvent?.content_block?.name ||
-                                        "unknown";
+                                    // Use the stored tool name from content_block_start
+                                    const toolName = block.name || "unknown";
                                     events.push({
                                         id: `${msg.timestamp}-tool-${index}`,
                                         timestamp: msg.timestamp,

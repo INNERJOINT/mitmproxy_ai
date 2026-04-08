@@ -219,6 +219,60 @@ export default function AIAnalyzerPage() {
                     </span>
                 </div>
             );
+        } else if (event.type === "tool_call" && event.content) {
+            content = (
+                <div style={{ marginBottom: "15px" }}>
+                    <strong
+                        style={{
+                            display: "block",
+                            marginBottom: "5px",
+                            color: "#0d6efd",
+                        }}
+                    >
+                        Tool Call
+                    </strong>
+                    <pre
+                        style={{
+                            whiteSpace: "pre-wrap",
+                            background: "#f0f4ff",
+                            padding: "10px",
+                            border: "1px solid #b8cfff",
+                            borderRadius: "4px",
+                            margin: 0,
+                            fontFamily: "monospace",
+                        }}
+                    >
+                        {event.content}
+                    </pre>
+                </div>
+            );
+        } else if (event.type === "tool_result" && event.content) {
+            content = (
+                <div style={{ marginBottom: "15px" }}>
+                    <strong
+                        style={{
+                            display: "block",
+                            marginBottom: "5px",
+                            color: "#198754",
+                        }}
+                    >
+                        Tool Result
+                    </strong>
+                    <pre
+                        style={{
+                            whiteSpace: "pre-wrap",
+                            background: "#f0faf4",
+                            padding: "10px",
+                            border: "1px solid #b8e6cc",
+                            borderRadius: "4px",
+                            margin: 0,
+                            fontFamily: "monospace",
+                        }}
+                    >
+                        {event.content}
+                    </pre>
+                </div>
+            );
         }
 
         if (!content) return null;
@@ -277,6 +331,16 @@ export default function AIAnalyzerPage() {
                             content: ev.content || "",
                         });
                     }
+                } else if (ev.type === "tool_call") {
+                    combinedChat.push({
+                        role: "Tool Call",
+                        content: ev.content || "",
+                    });
+                } else if (ev.type === "tool_result") {
+                    combinedChat.push({
+                        role: "Tool Result",
+                        content: ev.content || "",
+                    });
                 }
             }
         }
@@ -425,6 +489,9 @@ export default function AIAnalyzerPage() {
                             {combinedChat.map((chat, idx) => {
                                 const isUser = chat.role === "User";
                                 const isSystem = chat.role === "System Prompt";
+                                const isToolCall = chat.role === "Tool Call";
+                                const isToolResult = chat.role === "Tool Result";
+                                const isTool = isToolCall || isToolResult;
                                 return (
                                     <div
                                         key={idx}
@@ -458,7 +525,11 @@ export default function AIAnalyzerPage() {
                                                     ? "#007bff"
                                                     : isSystem
                                                       ? "#e9ecef"
-                                                      : "#f1f3f5",
+                                                      : isToolCall
+                                                        ? "#f0f4ff"
+                                                        : isToolResult
+                                                          ? "#f0faf4"
+                                                          : "#f1f3f5",
                                                 color: isUser
                                                     ? "#fff"
                                                     : "#212529",
@@ -476,6 +547,14 @@ export default function AIAnalyzerPage() {
                                                 whiteSpace: "pre-wrap",
                                                 fontSize: "14px",
                                                 lineHeight: "1.5",
+                                                border: isToolCall
+                                                    ? "1px solid #b8cfff"
+                                                    : isToolResult
+                                                      ? "1px solid #b8e6cc"
+                                                      : "none",
+                                                fontFamily: isTool
+                                                    ? "monospace"
+                                                    : "inherit",
                                             }}
                                         >
                                             {chat.content}
