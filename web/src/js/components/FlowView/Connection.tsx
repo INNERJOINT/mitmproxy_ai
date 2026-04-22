@@ -1,6 +1,7 @@
 import * as React from "react";
 import { formatTimeStamp } from "../../utils";
 import type { Address, Client, Flow, Server } from "../../flow";
+import SiblingFlows from "./SiblingFlows";
 
 type ConnectionInfoProps = {
     conn: Client | Server;
@@ -163,6 +164,8 @@ export default function Connection({ flow }: { flow: Flow }) {
             )}
 
             <CertificateInfo flow={flow} />
+
+            <SiblingFlows flow={flow} />
         </section>
     );
 }

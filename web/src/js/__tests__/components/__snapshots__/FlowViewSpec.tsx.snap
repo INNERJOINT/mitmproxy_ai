@@ -815,6 +815,41 @@ exports[`FlowView 4`] = `
           </tr>
         </tbody>
       </table>
+      <h4>
+        Sibling Flows on This Connection
+      </h4>
+      <div
+        class="sibling-flows-table"
+      >
+        <table>
+          <tbody>
+            <tr
+              class=""
+            >
+              <td>
+                GET
+              </td>
+              <td
+                title="http://address/path"
+              >
+                http://address/path
+              </td>
+            </tr>
+            <tr
+              class="sibling-current"
+            >
+              <td>
+                GET
+              </td>
+              <td
+                title="http://address/second"
+              >
+                http://address/second
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
   </div>
 </DocumentFragment>
