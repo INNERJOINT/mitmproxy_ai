@@ -15,8 +15,25 @@ interface _Flow {
     error?: Error;
     is_subagent?: boolean;
     subagent_instance_id?: string;
+    subagent_type?: string;
     parent_flow_id?: string;
+    is_orphan?: boolean;
+    is_launcher?: boolean;
+    child_subagent_runs?: ChildSubagentRun[];
+    subagent_launches?: SubagentLaunch[];
     claude_session_id?: string;
+}
+
+export interface ChildSubagentRun {
+    instance_id: string;
+    subagent_type: string;
+    flow_ids: string[];
+}
+
+export interface SubagentLaunch {
+    tool_use_id: string;
+    subagent_type: string | null;
+    description: string | null;
 }
 
 export type Flow = HTTPFlow | TCPFlow | UDPFlow | DNSFlow;

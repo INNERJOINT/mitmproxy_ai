@@ -186,9 +186,23 @@ def flow_to_json(flow: mitmproxy.flow.Flow) -> dict:
         if info.get("is_subagent"):
             f["is_subagent"] = True
             f["subagent_instance_id"] = info["subagent_instance_id"]
+            subagent_type = flow.metadata.get("subagent_type") or info.get(
+                "subagent_type"
+            )
+            if subagent_type:
+                f["subagent_type"] = subagent_type
             parent_id = flow.metadata.get("subagent_parent_id")
             if parent_id:
                 f["parent_flow_id"] = parent_id
+            if flow.metadata.get("subagent_is_orphan"):
+                f["is_orphan"] = True
+        child_runs = flow.metadata.get("subagent_child_runs")
+        if child_runs:
+            f["is_launcher"] = True
+            f["child_subagent_runs"] = child_runs
+        launches = flow.metadata.get("subagent_launches")
+        if launches:
+            f["subagent_launches"] = launches
 
         if flow.websocket:
             f["websocket"] = {

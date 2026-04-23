@@ -1,15 +1,30 @@
-"""Detection of Claude Code subagent flows.
+"""Detection of Claude Code subagent flows and their launchers.
 
-Heuristic is body-based: Claude Code injects a marker of the form
-`SubagentStart hook additional context: Agent <type> started (<hex-id>)`
-into the request body of every subagent invocation. The session id
-header (`x-claude-code-session-id`) is shared between parent and
-subagent flows and therefore cannot be used to discriminate.
+Claude Code injects a marker of the form
+``SubagentStart hook additional context: Agent <type> started (<hex-id>)``
+into the request body of every subagent invocation. The hex id is stable
+across all turns of one subagent run, so it is the natural grouping key.
+
+Launcher flows can be identified by their response: any Anthropic
+``tool_use`` block whose ``name`` is ``Agent`` (or ``Task``, the legacy
+name) launches a subagent and carries an ``input.subagent_type`` field
+that names the agent type to spawn.
+
+Linkage strategy: each subagent run (set of flows sharing one instance
+hex) is paired with the most recent prior launcher in the same Claude
+Code session whose ``subagent_type`` matches the marker's agent type
+(case-insensitive, with namespace-suffix matching so that
+``oh-my-claudecode:explore`` matches ``Explore``). Subagent runs whose
+launcher cannot be found in the captured flows are flagged as orphans;
+the frontend offers manual cross-session association.
 """
 
 from __future__ import annotations
 
+import json
 import re
+from dataclasses import dataclass
+from dataclasses import field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -19,18 +34,32 @@ if TYPE_CHECKING:
 SUBAGENT_FAST_PATH = b"SubagentStart"
 
 SUBAGENT_MARKER_RE = re.compile(
-    rb"SubagentStart hook additional context:\s*Agent\s+\S+\s+started\s*\(([0-9a-fA-F]+)\)"
+    rb"SubagentStart hook additional context:\s*Agent\s+(\S+)\s+started\s*\(([0-9a-fA-F]+)\)"
 )
 
-AGENT_TOOL_CALL_MARKER = b'"name":"Agent"'
+# Either form may appear depending on Claude Code version / tool naming.
+# Real Anthropic SSE writes ``"name":"Agent"`` (no space); some tooling and
+# tests may pretty-print with a space, so accept both.
+AGENT_TOOL_CALL_FAST_PATHS = (
+    b'"name":"Agent"',
+    b'"name": "Agent"',
+    b'"name":"Task"',
+    b'"name": "Task"',
+)
+
+# SSE chunks that contribute to a tool_use input. The Anthropic SSE
+# payload is one ``data: <json>`` line per event; we extract that JSON
+# blob and parse it structurally so field order does not matter.
+_SSE_DATA_RE = re.compile(rb"^data:\s*(\{.*\})\s*$", re.MULTILINE)
 
 
 def extract(flow: "HTTPFlow") -> dict:
     """Return subagent classification for an HTTPFlow.
 
     Always returns a dict with at least ``is_subagent``. When the flow is a
-    subagent invocation, ``subagent_instance_id`` is set. ``claude_session_id``
-    is set whenever the request carries the Claude Code session header.
+    subagent invocation, ``subagent_instance_id`` and ``subagent_type`` are
+    set. ``claude_session_id`` is set whenever the request carries the
+    Claude Code session header.
     """
     result: dict = {"is_subagent": False}
 
@@ -51,51 +80,261 @@ def extract(flow: "HTTPFlow") -> dict:
         return result
 
     result["is_subagent"] = True
-    result["subagent_instance_id"] = match.group(1).decode("ascii")
+    result["subagent_type"] = match.group(1).decode("utf-8", "replace")
+    result["subagent_instance_id"] = match.group(2).decode("ascii")
     return result
 
 
 def response_launches_agent(flow: "HTTPFlow") -> bool:
-    """True if the response body of ``flow`` contains an Agent tool call.
-
-    Used by the parent-linkage heuristic. Treats the marker as a literal
-    byte sequence inside SSE/JSON; works because Claude Code emits the tool
-    call name verbatim in its streaming chunks.
-    """
+    """True if the response body of ``flow`` contains an Agent/Task tool call."""
     response = getattr(flow, "response", None)
     if response is None:
         return False
     raw = response.raw_content
     if not raw:
         return False
-    return AGENT_TOOL_CALL_MARKER in raw
+    return any(marker in raw for marker in AGENT_TOOL_CALL_FAST_PATHS)
+
+
+def parse_launches(flow: "HTTPFlow") -> list[dict]:
+    """Return a list of launch records from this flow's response.
+
+    Each record is ``{"tool_use_id": str, "subagent_type": str | None,
+    "description": str | None}``. Returns ``[]`` if the response is not a
+    launcher or cannot be parsed.
+
+    The Anthropic API streams responses as SSE; we walk every
+    ``data: {...}`` event, group ``content_block_start`` (carrying
+    ``id``/``name``) with subsequent ``input_json_delta`` chunks for the
+    same ``index``, and JSON-decode the assembled input.
+    """
+    response = getattr(flow, "response", None)
+    if response is None:
+        return []
+    raw = response.raw_content
+    if not raw or not any(m in raw for m in AGENT_TOOL_CALL_FAST_PATHS):
+        return []
+
+    starts: dict[int, tuple[str, str]] = {}  # idx -> (tool_use_id, name)
+    deltas: dict[int, list[str]] = {}
+
+    for m in _SSE_DATA_RE.finditer(raw):
+        try:
+            event = json.loads(m.group(1).decode("utf-8", "replace"))
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if not isinstance(event, dict):
+            continue
+        etype = event.get("type")
+        idx = event.get("index")
+        if etype == "content_block_start" and isinstance(idx, int):
+            block = event.get("content_block")
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") != "tool_use":
+                continue
+            name = block.get("name")
+            if name not in ("Agent", "Task"):
+                continue
+            tool_use_id = block.get("id")
+            if isinstance(tool_use_id, str):
+                starts[idx] = (tool_use_id, name)
+                deltas.setdefault(idx, [])
+        elif etype == "content_block_delta" and isinstance(idx, int):
+            delta = event.get("delta")
+            if (
+                isinstance(delta, dict)
+                and delta.get("type") == "input_json_delta"
+                and idx in deltas
+            ):
+                partial = delta.get("partial_json", "")
+                if isinstance(partial, str):
+                    deltas[idx].append(partial)
+        elif etype == "input_json_delta" and isinstance(idx, int):
+            # Older payload shape — same fields at the top level.
+            if idx in deltas:
+                partial = event.get("partial_json", "")
+                if isinstance(partial, str):
+                    deltas[idx].append(partial)
+
+    if not starts:
+        return []
+
+    launches: list[dict] = []
+    for idx, (tool_use_id, _name) in starts.items():
+        joined = "".join(deltas.get(idx, []))
+        subagent_type: str | None = None
+        description: str | None = None
+        if joined:
+            try:
+                payload = json.loads(joined)
+            except ValueError:
+                payload = None
+            if isinstance(payload, dict):
+                st = payload.get("subagent_type")
+                if isinstance(st, str):
+                    subagent_type = st
+                desc = payload.get("description")
+                if isinstance(desc, str):
+                    description = desc
+        launches.append(
+            {
+                "tool_use_id": tool_use_id,
+                "subagent_type": subagent_type,
+                "description": description,
+            }
+        )
+    return launches
+
+
+def _types_match(launcher_type: str | None, marker_type: str) -> bool:
+    """Match a launcher's subagent_type against a marker's agent type.
+
+    Case-insensitive. If either is of the form ``namespace:name``, the
+    suffix after the last ``:`` is compared against the other side's
+    bare/suffix form. So ``oh-my-claudecode:explore`` matches ``Explore``.
+    """
+    if launcher_type is None:
+        return False
+    a = launcher_type.rsplit(":", 1)[-1].strip().lower()
+    b = marker_type.rsplit(":", 1)[-1].strip().lower()
+    return bool(a) and a == b
+
+
+@dataclass
+class _SubagentRun:
+    instance_hex: str
+    subagent_type: str
+    session_id: str | None
+    flow_ids: list[str] = field(default_factory=list)
+    first_time: float = 0.0
+    parent_flow_id: str | None = None
+
+
+@dataclass
+class _Launcher:
+    flow_id: str
+    session_id: str | None
+    time: float
+    launches: list[dict]  # records from parse_launches
+    children: list[_SubagentRun] = field(default_factory=list)
+
+
+def _flow_time(flow) -> float:
+    request = getattr(flow, "request", None)
+    if request is not None:
+        ts = getattr(request, "timestamp_start", None)
+        if ts is not None:
+            return float(ts)
+    return 0.0
 
 
 def resolve_parent_links(flows) -> None:
-    """Populate ``flow.metadata['subagent_parent_id']`` for subagent flows.
+    """Populate parent linkage and orphan/launcher metadata on ``flows``.
 
-    Walks ``flows`` in their given order. For each subagent flow, the parent
-    is the most recent prior non-subagent HTTPFlow that (a) shares the same
-    Claude session id and (b) has a response containing an Agent tool call.
-    Skips flows that already have a cached parent id in metadata.
+    Pass 1 classifies every flow as launcher / subagent / neither. Pass 2
+    pairs each subagent run (grouped by instance hex) with the most
+    recent prior launcher in the same session whose ``subagent_type``
+    matches the marker's agent type. Pass 3 writes the result onto each
+    flow's metadata.
+
+    Metadata written:
+      - ``subagent_parent_id`` (str | None) on each subagent flow
+      - ``subagent_is_orphan`` (bool) on each subagent flow
+      - ``subagent_type`` (str) on each subagent flow
+      - ``subagent_child_runs`` (list[dict]) on each launcher flow with
+        children: ``[{"instance_id", "subagent_type", "flow_ids"}]``
     """
-    last_launcher_by_session: dict[str, str] = {}
+    flow_by_id: dict[str, object] = {}
+    runs: dict[str, _SubagentRun] = {}
+    launchers_by_session: dict[str | None, list[_Launcher]] = {}
+    all_launchers: list[_Launcher] = []
 
+    # Pass 1: classify
     for flow in flows:
-        request = getattr(flow, "request", None)
-        if request is None:
+        if getattr(flow, "request", None) is None:
             continue
+        flow_by_id[flow.id] = flow
         info = extract(flow)
         session_id = info.get("claude_session_id")
-        if not info.get("is_subagent"):
-            if session_id and response_launches_agent(flow):
-                last_launcher_by_session[session_id] = flow.id
-            continue
+        time = _flow_time(flow)
 
-        if flow.metadata.get("subagent_parent_id"):
+        if info.get("is_subagent"):
+            hex_id = info["subagent_instance_id"]
+            run = runs.get(hex_id)
+            if run is None:
+                run = _SubagentRun(
+                    instance_hex=hex_id,
+                    subagent_type=info["subagent_type"],
+                    session_id=session_id,
+                    first_time=time,
+                )
+                runs[hex_id] = run
+            run.flow_ids.append(flow.id)
+            if time and (not run.first_time or time < run.first_time):
+                run.first_time = time
+        else:
+            launches = parse_launches(flow)
+            if launches:
+                launcher = _Launcher(
+                    flow_id=flow.id,
+                    session_id=session_id,
+                    time=time,
+                    launches=launches,
+                )
+                launchers_by_session.setdefault(session_id, []).append(launcher)
+                all_launchers.append(launcher)
+
+    # Pass 2: pair runs to launchers
+    for run in runs.values():
+        candidates = launchers_by_session.get(run.session_id, [])
+        for launcher in reversed(candidates):
+            if launcher.time > run.first_time and run.first_time:
+                continue
+            if any(
+                _types_match(l.get("subagent_type"), run.subagent_type)
+                for l in launcher.launches
+            ):
+                run.parent_flow_id = launcher.flow_id
+                launcher.children.append(run)
+                break
+
+    # Pass 3: write back
+    for run in runs.values():
+        is_orphan = run.parent_flow_id is None
+        for fid in run.flow_ids:
+            f = flow_by_id.get(fid)
+            if f is None:
+                continue
+            if run.parent_flow_id and run.parent_flow_id != fid:
+                f.metadata["subagent_parent_id"] = run.parent_flow_id
+            else:
+                f.metadata.pop("subagent_parent_id", None)
+            f.metadata["subagent_is_orphan"] = is_orphan
+            f.metadata["subagent_type"] = run.subagent_type
+
+    for launcher in all_launchers:
+        f = flow_by_id.get(launcher.flow_id)
+        if f is None:
             continue
-        if not session_id:
-            continue
-        parent_id = last_launcher_by_session.get(session_id)
-        if parent_id and parent_id != flow.id:
-            flow.metadata["subagent_parent_id"] = parent_id
+        if launcher.children:
+            f.metadata["subagent_child_runs"] = [
+                {
+                    "instance_id": child.instance_hex,
+                    "subagent_type": child.subagent_type,
+                    "flow_ids": list(child.flow_ids),
+                }
+                for child in launcher.children
+            ]
+        else:
+            f.metadata.pop("subagent_child_runs", None)
+        # Record what this launcher tried to spawn even if no child run is
+        # in the capture — useful for "Find candidate parents" matching.
+        f.metadata["subagent_launches"] = [
+            {
+                "tool_use_id": rec["tool_use_id"],
+                "subagent_type": rec.get("subagent_type"),
+                "description": rec.get("description"),
+            }
+            for rec in launcher.launches
+        ]

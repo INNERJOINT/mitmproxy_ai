@@ -11,6 +11,39 @@ def _flow_with_request_body(body: bytes, *, session_id: str | None = None):
     return f
 
 
+def _launcher_response(
+    *, tool_use_id: str, subagent_type: str, index: int = 0
+) -> bytes:
+    """Build a minimal SSE response for a launcher with one Agent tool_use.
+
+    Mirrors the Anthropic streaming shape: a ``content_block_start`` event
+    that names the tool, followed by ``content_block_delta`` events whose
+    ``delta.partial_json`` chunks concatenate to the input JSON.
+    """
+    import json
+
+    cbs = {
+        "type": "content_block_start",
+        "index": index,
+        "content_block": {
+            "type": "tool_use",
+            "id": tool_use_id,
+            "name": "Agent",
+            "input": {},
+        },
+    }
+    payload = json.dumps({"subagent_type": subagent_type, "description": "x"})
+    cbd = {
+        "type": "content_block_delta",
+        "index": index,
+        "delta": {"type": "input_json_delta", "partial_json": payload},
+    }
+    return (
+        b"data: " + json.dumps(cbs).encode() + b"\n\n"
+        b"data: " + json.dumps(cbd).encode() + b"\n\n"
+    )
+
+
 def test_extract_subagent_marker():
     f = _flow_with_request_body(
         b"prefix... SubagentStart hook additional context: "
@@ -20,6 +53,7 @@ def test_extract_subagent_marker():
     info = subagent.extract(f)
     assert info["is_subagent"] is True
     assert info["subagent_instance_id"] == "ab9608b3af968da56"
+    assert info["subagent_type"] == "oh-my-claudecode:explore"
     assert info["claude_session_id"] == "36c573e0-acfb-47e2-98ca-d9dedd1b608f"
 
 
@@ -30,7 +64,6 @@ def test_extract_no_marker():
 
 
 def test_extract_malformed_marker():
-    # marker present but missing parenthesised id
     f = _flow_with_request_body(
         b"SubagentStart hook additional context: Agent some-agent started without id"
     )
@@ -64,6 +97,7 @@ def test_flow_to_json_omits_subagent_fields_for_normal_flow():
     assert "is_subagent" not in j
     assert "subagent_instance_id" not in j
     assert "parent_flow_id" not in j
+    assert "is_launcher" not in j
 
 
 def test_resolve_parent_links_pairs_parent_to_subagent():
@@ -71,30 +105,126 @@ def test_resolve_parent_links_pairs_parent_to_subagent():
     parent.request.headers["x-claude-code-session-id"] = "sess-A"
     parent.request.set_content(b"parent prompt")
     parent.response.set_content(
-        b'data: {"type":"tool_use","name":"Agent","input":{}}\n\n'
+        _launcher_response(tool_use_id="toolu_1", subagent_type="X")
     )
 
     child = _flow_with_request_body(
-        b"SubagentStart hook additional context: Agent x started (cafe1234)",
+        b"SubagentStart hook additional context: Agent X started (cafe1234)",
         session_id="sess-A",
     )
 
     subagent.resolve_parent_links([parent, child])
     assert child.metadata.get("subagent_parent_id") == parent.id
+    assert child.metadata.get("subagent_is_orphan") is False
 
     j = flow_to_json(child)
     assert j["parent_flow_id"] == parent.id
+    assert j.get("is_orphan") is not True
 
 
-def test_resolve_parent_links_skips_other_session():
+def test_resolve_parent_links_skips_other_session_marks_orphan():
     parent = tflow.tflow(resp=True)
     parent.request.headers["x-claude-code-session-id"] = "sess-A"
-    parent.response.set_content(b'"name":"Agent"')
+    parent.response.set_content(
+        _launcher_response(tool_use_id="toolu_1", subagent_type="X")
+    )
 
     child = _flow_with_request_body(
-        b"SubagentStart hook additional context: Agent x started (abcd)",
+        b"SubagentStart hook additional context: Agent X started (abcd)",
         session_id="sess-B",
     )
 
     subagent.resolve_parent_links([parent, child])
     assert "subagent_parent_id" not in child.metadata
+    assert child.metadata.get("subagent_is_orphan") is True
+    j = flow_to_json(child)
+    assert j.get("is_orphan") is True
+
+
+def test_resolve_parent_links_groups_run_by_instance_hex():
+    parent = tflow.tflow(resp=True)
+    parent.request.headers["x-claude-code-session-id"] = "sess-A"
+    parent.response.set_content(
+        _launcher_response(tool_use_id="toolu_1", subagent_type="Explore")
+    )
+    children = [
+        _flow_with_request_body(
+            b"SubagentStart hook additional context: Agent Explore started (a816766dc54a7a03f)"
+            + b" (turn " + str(i).encode() + b")",
+            session_id="sess-A",
+        )
+        for i in range(3)
+    ]
+    subagent.resolve_parent_links([parent, *children])
+    for c in children:
+        assert c.metadata["subagent_parent_id"] == parent.id
+        assert c.metadata["subagent_is_orphan"] is False
+        assert c.metadata["subagent_type"] == "Explore"
+    assert parent.metadata["subagent_child_runs"] == [
+        {
+            "instance_id": "a816766dc54a7a03f",
+            "subagent_type": "Explore",
+            "flow_ids": [c.id for c in children],
+        }
+    ]
+
+
+def test_resolve_parent_links_type_mismatch_does_not_steal():
+    """A later launcher with the wrong subagent_type must not steal children."""
+    plan_launcher = tflow.tflow(resp=True)
+    plan_launcher.request.headers["x-claude-code-session-id"] = "sess-A"
+    plan_launcher.request.timestamp_start = 1000.0
+    plan_launcher.response.set_content(
+        _launcher_response(tool_use_id="toolu_plan", subagent_type="Plan")
+    )
+
+    explore_launcher = tflow.tflow(resp=True)
+    explore_launcher.request.headers["x-claude-code-session-id"] = "sess-A"
+    explore_launcher.request.timestamp_start = 1001.0
+    explore_launcher.response.set_content(
+        _launcher_response(tool_use_id="toolu_explore", subagent_type="Explore")
+    )
+
+    child = _flow_with_request_body(
+        b"SubagentStart hook additional context: Agent Explore started (deadbeef)",
+        session_id="sess-A",
+    )
+    child.request.timestamp_start = 1002.0
+
+    subagent.resolve_parent_links([plan_launcher, explore_launcher, child])
+    # Must link to explore_launcher (matching type), not plan_launcher.
+    assert child.metadata["subagent_parent_id"] == explore_launcher.id
+    assert "subagent_child_runs" not in plan_launcher.metadata
+    assert explore_launcher.metadata["subagent_child_runs"][0]["instance_id"] == "deadbeef"
+
+
+def test_namespaced_agent_type_matches_bare_subagent_type():
+    parent = tflow.tflow(resp=True)
+    parent.request.headers["x-claude-code-session-id"] = "sess-A"
+    parent.response.set_content(
+        _launcher_response(tool_use_id="toolu_1", subagent_type="Explore")
+    )
+    child = _flow_with_request_body(
+        b"SubagentStart hook additional context: "
+        b"Agent oh-my-claudecode:explore started (deadbeef)",
+        session_id="sess-A",
+    )
+    subagent.resolve_parent_links([parent, child])
+    assert child.metadata["subagent_parent_id"] == parent.id
+
+
+def test_launcher_metadata_surfaced_in_json():
+    parent = tflow.tflow(resp=True)
+    parent.request.headers["x-claude-code-session-id"] = "sess-A"
+    parent.response.set_content(
+        _launcher_response(tool_use_id="toolu_1", subagent_type="Explore")
+    )
+    child = _flow_with_request_body(
+        b"SubagentStart hook additional context: Agent Explore started (deadbeef)",
+        session_id="sess-A",
+    )
+    subagent.resolve_parent_links([parent, child])
+    j = flow_to_json(parent)
+    assert j["is_launcher"] is True
+    assert j["child_subagent_runs"][0]["instance_id"] == "deadbeef"
+    assert j["subagent_launches"][0]["subagent_type"] == "Explore"
