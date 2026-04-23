@@ -13,6 +13,10 @@ interface _Flow {
     client_conn: Client;
     server_conn?: Server;
     error?: Error;
+    is_subagent?: boolean;
+    subagent_instance_id?: string;
+    parent_flow_id?: string;
+    claude_session_id?: string;
 }
 
 export type Flow = HTTPFlow | TCPFlow | UDPFlow | DNSFlow;

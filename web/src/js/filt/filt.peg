@@ -236,6 +236,21 @@ function replayFilter(flow){
 }
 replayFilter.desc = "flow has been replayed";
 
+// ~subagent
+function subagentFilter(flow){
+    return !!flow.is_subagent;
+}
+subagentFilter.desc = "is a subagent flow";
+
+// ~agentid
+function subagentInstance(id){
+    function subagentInstanceFilter(flow){
+        return flow.subagent_instance_id === id;
+    }
+    subagentInstanceFilter.desc = "subagent instance id is " + id;
+    return subagentInstanceFilter;
+}
+
 // ~src
 function source(regex){
     regex = new RegExp(regex, "i");
@@ -356,6 +371,7 @@ BindingExpr
 
 Expr
   = "~all" { return allFilter; }
+  / "~agentid" ws+ s:StringLiteral { return subagentInstance(s); }
   / "~a" { return assetFilter; }
   / "~b" ws+ s:StringLiteral { return body(s); }
   / "~bq" ws+ s:StringLiteral { return requestBody(s); }
@@ -377,6 +393,7 @@ Expr
   / "~replayq" { return clientReplayFilter; }
   / "~replays" { return serverReplayFilter; }
   / "~replay" { return replayFilter; }
+  / "~subagent" { return subagentFilter; }
   / "~src" ws+ s:StringLiteral { return source(s); }
   / "~s" { return responseFilter; }
   / "~tcp" { return tcpFilter; }

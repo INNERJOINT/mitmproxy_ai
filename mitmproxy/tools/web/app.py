@@ -40,6 +40,7 @@ from mitmproxy.dns import DNSFlow
 from mitmproxy.http import HTTPFlow
 from mitmproxy.tcp import TCPFlow
 from mitmproxy.tcp import TCPMessage
+from mitmproxy.tools.web import subagent as subagent_detect
 from mitmproxy.tools.web.webaddons import WebAuth
 from mitmproxy.udp import UDPFlow
 from mitmproxy.udp import UDPMessage
@@ -178,6 +179,16 @@ def flow_to_json(flow: mitmproxy.flow.Flow) -> dict:
                 f["response"]["trailers"] = tuple(
                     flow.response.data.trailers.items(True)
                 )
+
+        info = subagent_detect.extract(flow)
+        if info.get("claude_session_id"):
+            f["claude_session_id"] = info["claude_session_id"]
+        if info.get("is_subagent"):
+            f["is_subagent"] = True
+            f["subagent_instance_id"] = info["subagent_instance_id"]
+            parent_id = flow.metadata.get("subagent_parent_id")
+            if parent_id:
+                f["parent_flow_id"] = parent_id
 
         if flow.websocket:
             f["websocket"] = {
@@ -503,7 +514,9 @@ class ClientConnection(WebSocketEventBroadcaster):
 
 class Flows(RequestHandler):
     def get(self):
-        self.write([flow_to_json(f) for f in self.view])
+        flows = list(self.view)
+        subagent_detect.resolve_parent_links(flows)
+        self.write([flow_to_json(f) for f in flows])
 
 
 class DumpFlows(RequestHandler):
