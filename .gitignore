@@ -8,6 +8,8 @@ MANIFEST
 *.swo
 *.sqlite
 *.egg-info/
+*.omc
+.claude/
 .coverage*
 .idea
 .vscode
