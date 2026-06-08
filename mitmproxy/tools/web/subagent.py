@@ -31,6 +31,19 @@ if TYPE_CHECKING:
     from mitmproxy.http import HTTPFlow
 
 
+MAX_SSE_EVENTS = 5000
+MAX_SSE_DATA_BYTES = 1_000_000
+MAX_ACCUMULATED_ARGUMENT_BYTES = 1_000_000
+
+
+def _append_limited_argument(parts: list[str], value: str, state: dict[str, int]) -> None:
+    remaining = MAX_ACCUMULATED_ARGUMENT_BYTES - state.get("chars", 0)
+    if remaining <= 0:
+        return
+    parts.append(value[:remaining])
+    state["chars"] = state.get("chars", 0) + min(len(value), remaining)
+
+
 SUBAGENT_FAST_PATH = b"SubagentStart"
 
 SUBAGENT_MARKER_RE = re.compile(
@@ -48,6 +61,7 @@ AGENT_TOOL_CALL_FAST_PATHS = (
     b'"name":"Task"',
     b'"name": "Task"',
     b'"tool_calls"',
+    b'"function_call"',
 )
 
 # SSE chunks that contribute to a tool_use input. Anthropic and OpenAI both
@@ -121,14 +135,22 @@ def _loads_input_json(text: str) -> object:
 def _parse_anthropic_launches(raw: bytes) -> list[dict]:
     starts: dict[int, tuple[str, str]] = {}  # idx -> (tool_use_id, name)
     deltas: dict[int, list[str]] = {}
+    argument_state = {"chars": 0}
 
+    count = 0
     for m in _SSE_DATA_RE.finditer(raw):
+        if count >= MAX_SSE_EVENTS:
+            break
+        payload = m.group(1)
+        if len(payload) > MAX_SSE_DATA_BYTES:
+            continue
         try:
-            event = json.loads(m.group(1).decode("utf-8", "replace"))
+            event = json.loads(payload.decode("utf-8", "replace"))
         except (ValueError, UnicodeDecodeError):
             continue
         if not isinstance(event, dict):
             continue
+        count += 1
         etype = event.get("type")
         idx = event.get("index")
         if etype == "content_block_start" and isinstance(idx, int):
@@ -153,12 +175,12 @@ def _parse_anthropic_launches(raw: bytes) -> list[dict]:
             ):
                 partial = delta.get("partial_json", "")
                 if isinstance(partial, str):
-                    deltas[idx].append(partial)
+                    _append_limited_argument(deltas[idx], partial, argument_state)
         elif etype == "input_json_delta" and isinstance(idx, int):
             if idx in deltas:
                 partial = event.get("partial_json", "")
                 if isinstance(partial, str):
-                    deltas[idx].append(partial)
+                    _append_limited_argument(deltas[idx], partial, argument_state)
 
     return [
         _launch_record(tool_use_id, _loads_input_json("".join(deltas.get(idx, []))))
@@ -212,16 +234,50 @@ def _parse_openai_json_launches(raw: bytes) -> list[dict]:
     return launches
 
 
+def _parse_openai_responses_json_launches(raw: bytes) -> list[dict]:
+    try:
+        data = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        return []
+    if not isinstance(data, dict) or data.get("object") != "response":
+        return []
+
+    launches: list[dict] = []
+    for i, item in enumerate(data.get("output") or []):
+        if not isinstance(item, dict) or item.get("type") != "function_call":
+            continue
+        name = item.get("name")
+        if name not in AGENT_TOOL_NAMES:
+            continue
+        tool_use_id = item.get("call_id")
+        if not isinstance(tool_use_id, str):
+            tool_use_id = item.get("id")
+        if not isinstance(tool_use_id, str):
+            tool_use_id = f"responses:{i}"
+        arguments = item.get("arguments", "")
+        payload = _loads_input_json(arguments) if isinstance(arguments, str) else arguments
+        launches.append(_launch_record(tool_use_id, payload))
+    return launches
+
+
 def _parse_openai_sse_launches(raw: bytes) -> list[dict]:
     calls: dict[tuple[int, int], dict] = {}
+    argument_state = {"chars": 0}
 
+    count = 0
     for m in _SSE_DATA_RE.finditer(raw):
+        if count >= MAX_SSE_EVENTS:
+            break
+        payload = m.group(1)
+        if len(payload) > MAX_SSE_DATA_BYTES:
+            continue
         try:
-            event = json.loads(m.group(1).decode("utf-8", "replace"))
+            event = json.loads(payload.decode("utf-8", "replace"))
         except (ValueError, UnicodeDecodeError):
             continue
         if not isinstance(event, dict) or event.get("object") != "chat.completion.chunk":
             continue
+        count += 1
         for choice in event.get("choices") or []:
             if not isinstance(choice, dict):
                 continue
@@ -248,7 +304,9 @@ def _parse_openai_sse_launches(raw: bytes) -> list[dict]:
                     if isinstance(function.get("name"), str):
                         call["name"].append(function["name"])
                     if isinstance(function.get("arguments"), str):
-                        call["arguments"].append(function["arguments"])
+                        _append_limited_argument(
+                            call["arguments"], function["arguments"], argument_state
+                        )
 
     launches: list[dict] = []
     for (choice_index, tool_index), call in calls.items():
@@ -264,6 +322,87 @@ def _parse_openai_sse_launches(raw: bytes) -> list[dict]:
         )
         if record is not None:
             launches.append(record)
+    return launches
+
+
+def _parse_openai_responses_sse_launches(raw: bytes) -> list[dict]:
+    calls: dict[str, dict] = {}
+    argument_state = {"chars": 0}
+    output_index_to_id: dict[int, str] = {}
+
+    count = 0
+    for m in _SSE_DATA_RE.finditer(raw):
+        if count >= MAX_SSE_EVENTS:
+            break
+        payload = m.group(1)
+        if len(payload) > MAX_SSE_DATA_BYTES:
+            continue
+        try:
+            event = json.loads(payload.decode("utf-8", "replace"))
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if not isinstance(event, dict):
+            continue
+        count += 1
+        event_type = event.get("type")
+        if not isinstance(event_type, str) or not event_type.startswith("response."):
+            continue
+        output_index = event.get("output_index")
+        item = event.get("item")
+        if isinstance(item, dict) and item.get("type") == "function_call":
+            item_id = item.get("id")
+            if not isinstance(item_id, str):
+                item_id = item.get("call_id")
+            if not isinstance(item_id, str):
+                item_id = f"responses:{output_index or 0}"
+            if isinstance(output_index, int):
+                output_index_to_id[output_index] = item_id
+            call = calls.setdefault(
+                item_id, {"id": None, "name": "", "arguments": []}
+            )
+            if isinstance(item.get("call_id"), str):
+                call["id"] = item["call_id"]
+            if isinstance(item.get("name"), str):
+                call["name"] = item["name"]
+            if event_type == "response.output_item.done" and isinstance(
+                item.get("arguments"), str
+            ):
+                arguments: list[str] = []
+                _append_limited_argument(arguments, item["arguments"], argument_state)
+                call["arguments"] = arguments
+            continue
+
+        if event_type not in (
+            "response.function_call_arguments.delta",
+            "response.function_call_arguments.done",
+        ):
+            continue
+        item_id = event.get("item_id")
+        if not isinstance(item_id, str):
+            item_id = (
+                output_index_to_id.get(output_index)
+                if isinstance(output_index, int)
+                else None
+            )
+        if not isinstance(item_id, str):
+            item_id = f"responses:{output_index or 0}"
+        call = calls.setdefault(item_id, {"id": None, "name": "", "arguments": []})
+        if event_type.endswith(".done") and isinstance(event.get("arguments"), str):
+            arguments: list[str] = []
+            _append_limited_argument(arguments, event["arguments"], argument_state)
+            call["arguments"] = arguments
+        elif isinstance(event.get("delta"), str):
+            _append_limited_argument(call["arguments"], event["delta"], argument_state)
+
+    launches: list[dict] = []
+    for item_id, call in calls.items():
+        name = call["name"]
+        if name not in AGENT_TOOL_NAMES:
+            continue
+        tool_use_id = call["id"] if isinstance(call["id"], str) else item_id
+        launches.append(
+            _launch_record(tool_use_id, _loads_input_json("".join(call["arguments"])))
+        )
     return launches
 
 
@@ -285,6 +424,8 @@ def parse_launches(flow: "HTTPFlow") -> list[dict]:
         _parse_anthropic_launches(raw)
         + _parse_openai_json_launches(raw)
         + _parse_openai_sse_launches(raw)
+        + _parse_openai_responses_json_launches(raw)
+        + _parse_openai_responses_sse_launches(raw)
     )
 
 

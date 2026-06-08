@@ -120,6 +120,93 @@ OPENAI_SSE = (
     "data: [DONE]\n\n"
 ).encode()
 
+OPENAI_RESPONSES_REQUEST = json.dumps({
+    "model": "gpt-5.5",
+    "instructions": "Be concise.",
+    "input": [
+        {
+            "type": "message",
+            "role": "developer",
+            "content": [{"type": "input_text", "text": "Use the tools."}],
+        },
+        {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": "Hello responses"}],
+        },
+        {
+            "type": "function_call_output",
+            "call_id": "call_1",
+            "output": "tool output",
+        },
+    ],
+    "tools": [
+        {
+            "type": "function",
+            "name": "Read",
+            "description": "Read a file",
+            "parameters": {"type": "object"},
+        }
+    ],
+    "stream": True,
+    "parallel_tool_calls": True,
+    "reasoning": {"effort": "medium", "summary": "detailed"},
+}).encode()
+
+OPENAI_RESPONSES_RESPONSE_JSON = json.dumps({
+    "id": "resp_1",
+    "object": "response",
+    "model": "gpt-5.5",
+    "status": "completed",
+    "output": [
+        {
+            "id": "rs_1",
+            "type": "reasoning",
+            "summary": [{"type": "summary_text", "text": "Need a tool."}],
+        },
+        {
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "Done"}],
+        },
+        {
+            "id": "fc_1",
+            "type": "function_call",
+            "name": "Agent",
+            "call_id": "call_2",
+            "arguments": '{"subagent_type":"Explore"}',
+        },
+    ],
+    "usage": {"input_tokens": 12, "output_tokens": 7},
+}).encode()
+
+OPENAI_RESPONSES_SSE = (
+    'data: {"type":"response.created","response":{"id":"resp_1",'
+    '"object":"response","model":"gpt-5.5","status":"in_progress"},'
+    '"sequence_number":0}\n\n'
+    'data: {"type":"response.reasoning_summary_text.delta","delta":"Need",'
+    '"item_id":"rs_1","output_index":0,"summary_index":0}\n\n'
+    'data: {"type":"response.reasoning_summary_text.delta","delta":" a tool.",'
+    '"item_id":"rs_1","output_index":0,"summary_index":0}\n\n'
+    'data: {"type":"response.output_text.delta","content_index":0,"delta":"Done",'
+    '"item_id":"msg_1","output_index":1}\n\n'
+    'data: {"type":"response.output_item.added","output_index":2,'
+    '"item":{"id":"fc_1","type":"function_call","status":"in_progress",'
+    '"name":"Agent","call_id":"call_2","arguments":""}}\n\n'
+    'data: {"type":"response.function_call_arguments.delta","item_id":"fc_1",'
+    '"output_index":2,"delta":"{\\"subagent_type\\":"}\n\n'
+    'data: {"type":"response.function_call_arguments.done","item_id":"fc_1",'
+    '"output_index":2,"arguments":"{\\"subagent_type\\":\\"Explore\\"}"}\n\n'
+    'data: {"type":"response.output_item.done","output_index":2,'
+    '"item":{"id":"fc_1","type":"function_call","status":"completed",'
+    '"name":"Agent","call_id":"call_2",'
+    '"arguments":"{\\"subagent_type\\":\\"Explore\\"}"}}\n\n'
+    'data: {"type":"response.completed","response":{"id":"resp_1",'
+    '"object":"response","model":"gpt-5.5","status":"completed",'
+    '"usage":{"input_tokens":12,"output_tokens":7}}}\n\n'
+).encode()
+
 
 def test_render_priority_request():
     assert 2 == anthropic_api.render_priority(
@@ -154,6 +241,24 @@ def test_render_priority_openai_response_json():
 def test_render_priority_openai_sse():
     assert 2 == anthropic_api.render_priority(
         OPENAI_SSE, Metadata(content_type="text/event-stream")
+    )
+
+
+def test_render_priority_openai_responses_request():
+    assert 2 == anthropic_api.render_priority(
+        OPENAI_RESPONSES_REQUEST, Metadata(content_type="application/json")
+    )
+
+
+def test_render_priority_openai_responses_response_json():
+    assert 2 == anthropic_api.render_priority(
+        OPENAI_RESPONSES_RESPONSE_JSON, Metadata(content_type="application/json")
+    )
+
+
+def test_render_priority_openai_responses_sse():
+    assert 2 == anthropic_api.render_priority(
+        OPENAI_RESPONSES_SSE, Metadata(content_type="text/event-stream")
     )
 
 
@@ -221,6 +326,40 @@ def test_prettify_openai_sse():
     assert "[Tool Call: Agent]" in result
     assert '"subagent_type": "Explore"' in result
     assert "[Finish Reason: tool_calls]" in result
+
+
+def test_prettify_openai_responses_request():
+    result = anthropic_api.prettify(OPENAI_RESPONSES_REQUEST, Metadata())
+    assert "OpenAI Responses Request" in result
+    assert "gpt-5.5" in result
+    assert "Be concise." in result
+    assert "Use the tools." in result
+    assert "Hello responses" in result
+    assert "[Tool Result: call_1]" in result
+    assert "Read a file" in result
+    assert "Reasoning: effort: medium, summary: detailed" in result
+
+
+def test_prettify_openai_responses_response_json():
+    result = anthropic_api.prettify(OPENAI_RESPONSES_RESPONSE_JSON, Metadata())
+    assert "OpenAI Responses Response" in result
+    assert "12 in / 7 out" in result
+    assert "[Reasoning Summary]" in result
+    assert "Need a tool." in result
+    assert "Done" in result
+    assert "[Tool Call: Agent]" in result
+    assert '"subagent_type": "Explore"' in result
+
+
+def test_prettify_openai_responses_sse():
+    result = anthropic_api.prettify(OPENAI_RESPONSES_SSE, Metadata())
+    assert "OpenAI Responses Stream" in result
+    assert "12 in / 7 out" in result
+    assert "[Reasoning Summary]" in result
+    assert "Need a tool." in result
+    assert "Done" in result
+    assert "[Tool Call: Agent]" in result
+    assert '"subagent_type": "Explore"' in result
 
 
 def test_prettify_invalid():

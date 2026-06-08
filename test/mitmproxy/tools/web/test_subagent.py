@@ -120,6 +120,77 @@ def _openai_launcher_response_sse(*, tool_use_id: str, subagent_type: str) -> by
     return b"".join(b"data: " + json.dumps(chunk).encode() + b"\n\n" for chunk in chunks)
 
 
+def _openai_responses_launcher_response_json(
+    *, tool_use_id: str, subagent_type: str
+) -> bytes:
+    return json.dumps({
+        "id": "resp_1",
+        "object": "response",
+        "model": "gpt-5.5",
+        "status": "completed",
+        "output": [
+            {
+                "id": "fc_1",
+                "type": "function_call",
+                "status": "completed",
+                "name": "Agent",
+                "call_id": tool_use_id,
+                "arguments": json.dumps({
+                    "subagent_type": subagent_type,
+                    "description": "x",
+                }),
+            }
+        ],
+    }).encode()
+
+
+def _openai_responses_launcher_response_sse(
+    *, tool_use_id: str, subagent_type: str
+) -> bytes:
+    argument = json.dumps({"subagent_type": subagent_type, "description": "x"})
+    events = [
+        {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+                "id": "fc_1",
+                "type": "function_call",
+                "status": "in_progress",
+                "name": "Agent",
+                "call_id": tool_use_id,
+                "arguments": "",
+            },
+        },
+        {
+            "type": "response.function_call_arguments.delta",
+            "item_id": "fc_1",
+            "output_index": 0,
+            "delta": argument[:10],
+        },
+        {
+            "type": "response.function_call_arguments.done",
+            "item_id": "fc_1",
+            "output_index": 0,
+            "arguments": argument,
+        },
+        {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+                "id": "fc_1",
+                "type": "function_call",
+                "status": "completed",
+                "name": "Agent",
+                "call_id": tool_use_id,
+                "arguments": argument,
+            },
+        },
+    ]
+    return b"".join(
+        b"data: " + json.dumps(event).encode() + b"\n\n" for event in events
+    )
+
+
 def test_extract_subagent_marker():
     f = _flow_with_request_body(
         b"prefix... SubagentStart hook additional context: "
@@ -259,7 +330,54 @@ def test_resolve_parent_links_pairs_openai_launcher_to_subagent():
     ]
 
 
-def test_resolve_parent_links_groups_run_by_instance_hex():
+def test_parse_launches_openai_responses_json_response():
+    parent = tflow.tflow(resp=True)
+    parent.response.set_content(
+        _openai_responses_launcher_response_json(
+            tool_use_id="call_1", subagent_type="Explore"
+        )
+    )
+
+    assert subagent.parse_launches(parent) == [
+        {"tool_use_id": "call_1", "subagent_type": "Explore", "description": "x"}
+    ]
+
+
+def test_parse_launches_openai_responses_sse_response():
+    parent = tflow.tflow(resp=True)
+    parent.response.set_content(
+        _openai_responses_launcher_response_sse(
+            tool_use_id="call_1", subagent_type="Explore"
+        )
+    )
+
+    assert subagent.parse_launches(parent) == [
+        {"tool_use_id": "call_1", "subagent_type": "Explore", "description": "x"}
+    ]
+
+
+def test_resolve_parent_links_pairs_openai_responses_launcher_to_subagent():
+    parent = tflow.tflow(resp=True)
+    parent.request.headers["x-claude-code-session-id"] = "sess-A"
+    parent.response.set_content(
+        _openai_responses_launcher_response_sse(
+            tool_use_id="call_1", subagent_type="Explore"
+        )
+    )
+
+    child = _flow_with_request_body(
+        b"SubagentStart hook additional context: Agent Explore started (deadbeef)",
+        session_id="sess-A",
+    )
+
+    subagent.resolve_parent_links([parent, child])
+    assert child.metadata.get("subagent_parent_id") == parent.id
+    assert child.metadata.get("subagent_is_orphan") is False
+    assert parent.metadata["subagent_launches"] == [
+        {"tool_use_id": "call_1", "subagent_type": "Explore", "description": "x"}
+    ]
+
+
     parent = tflow.tflow(resp=True)
     parent.request.headers["x-claude-code-session-id"] = "sess-A"
     parent.response.set_content(
