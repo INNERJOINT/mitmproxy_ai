@@ -14,13 +14,23 @@ module.exports = async () => {
         collectCoverageFrom: ["src/js/**/*.{js,jsx,ts,tsx}"],
         transform: {
             "^.+\\.[jt]sx?$": [
-                "esbuild-jest",
+                "@swc/jest",
                 {
-                    loaders: {
-                        ".js": "tsx",
+                    jsc: {
+                        parser: {
+                            syntax: "typescript",
+                            tsx: true,
+                        },
+                        transform: {
+                            react: {
+                                runtime: "automatic",
+                            },
+                        },
                     },
-                    format: "cjs",
-                    sourcemap: true,
+                    module: {
+                        type: "commonjs",
+                    },
+                    sourceMaps: true,
                 },
             ],
         },

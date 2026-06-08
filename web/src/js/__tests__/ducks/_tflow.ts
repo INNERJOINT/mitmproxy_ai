@@ -2,6 +2,8 @@
 import type {HTTPFlow, TCPFlow, UDPFlow, DNSFlow} from '../../flow';
 export function THTTPFlow(): Required<HTTPFlow> {
     return     {
+        "child_subagent_runs": [],
+        "claude_session_id": "",
         "client_conn": {
             "alpn": "http/1.1",
             "cert": undefined,
@@ -29,9 +31,13 @@ export function THTTPFlow(): Required<HTTPFlow> {
         },
         "id": "d91165be-ca1f-4612-88a9-c0f8696f3e29",
         "intercepted": false,
+        "is_launcher": false,
+        "is_orphan": false,
         "is_replay": undefined,
+        "is_subagent": false,
         "marked": "",
         "modified": false,
+        "parent_flow_id": "",
         "request": {
             "contentHash": "ed7002b439e9ac845f22357d822bac1444730fbdb6016d3ec9432297b9ec9f73",
             "contentLength": 7,
@@ -145,6 +151,9 @@ export function THTTPFlow(): Required<HTTPFlow> {
             "tls_established": true,
             "tls_version": "TLSv1.2"
         },
+        "subagent_instance_id": "",
+        "subagent_launches": [],
+        "subagent_type": "",
         "timestamp_created": 946681200,
         "type": "http",
         "websocket": {
@@ -162,6 +171,8 @@ export function THTTPFlow(): Required<HTTPFlow> {
 }
 export function TTCPFlow(): Required<TCPFlow> {
     return     {
+        "child_subagent_runs": [],
+        "claude_session_id": "",
         "client_conn": {
             "alpn": "http/1.1",
             "cert": undefined,
@@ -189,7 +200,10 @@ export function TTCPFlow(): Required<TCPFlow> {
         },
         "id": "2ea7012b-21b5-4f8f-98cd-d49819954001",
         "intercepted": false,
+        "is_launcher": false,
+        "is_orphan": false,
         "is_replay": undefined,
+        "is_subagent": false,
         "marked": "",
         "messages_meta": {
             "contentLength": 12,
@@ -197,6 +211,7 @@ export function TTCPFlow(): Required<TCPFlow> {
             "timestamp_last": 946681204.5
         },
         "modified": false,
+        "parent_flow_id": "",
         "server_conn": {
             "address": [
                 "address",
@@ -222,12 +237,17 @@ export function TTCPFlow(): Required<TCPFlow> {
             "tls_established": true,
             "tls_version": "TLSv1.2"
         },
+        "subagent_instance_id": "",
+        "subagent_launches": [],
+        "subagent_type": "",
         "timestamp_created": 946681200,
         "type": "tcp"
     }
 }
 export function TUDPFlow(): Required<UDPFlow> {
     return     {
+        "child_subagent_runs": [],
+        "claude_session_id": "",
         "client_conn": {
             "alpn": "http/1.1",
             "cert": undefined,
@@ -255,7 +275,10 @@ export function TUDPFlow(): Required<UDPFlow> {
         },
         "id": "f9f7b2b9-7727-4477-822d-d3526e5b8951",
         "intercepted": false,
+        "is_launcher": false,
+        "is_orphan": false,
         "is_replay": undefined,
+        "is_subagent": false,
         "marked": "",
         "messages_meta": {
             "contentLength": 12,
@@ -263,6 +286,7 @@ export function TUDPFlow(): Required<UDPFlow> {
             "timestamp_last": 946681204.5
         },
         "modified": false,
+        "parent_flow_id": "",
         "server_conn": {
             "address": [
                 "address",
@@ -288,12 +312,17 @@ export function TUDPFlow(): Required<UDPFlow> {
             "tls_established": true,
             "tls_version": "TLSv1.2"
         },
+        "subagent_instance_id": "",
+        "subagent_launches": [],
+        "subagent_type": "",
         "timestamp_created": 946681200,
         "type": "udp"
     }
 }
 export function TDNSFlow(): Required<DNSFlow> {
     return     {
+        "child_subagent_runs": [],
+        "claude_session_id": "",
         "client_conn": {
             "alpn": "http/1.1",
             "cert": undefined,
@@ -321,9 +350,13 @@ export function TDNSFlow(): Required<DNSFlow> {
         },
         "id": "5434da94-1017-42fa-872d-a189508d48e4",
         "intercepted": false,
+        "is_launcher": false,
+        "is_orphan": false,
         "is_replay": undefined,
+        "is_subagent": false,
         "marked": "",
         "modified": false,
+        "parent_flow_id": "",
         "request": {
             "additionals": [],
             "answers": [],
@@ -410,6 +443,9 @@ export function TDNSFlow(): Required<DNSFlow> {
             "tls_established": true,
             "tls_version": "TLSv1.2"
         },
+        "subagent_instance_id": "",
+        "subagent_launches": [],
+        "subagent_type": "",
         "timestamp_created": 946681200,
         "type": "dns"
     }

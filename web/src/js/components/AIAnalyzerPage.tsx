@@ -296,17 +296,17 @@ export default function AIAnalyzerPage() {
         for (const msg of rawMessages) {
             const events = parseSingleWsMessage(msg);
             for (const event of events) {
-                if (
-                    event.type === "meta" &&
-                    event.provider === "Anthropic API"
-                ) {
+                if (event.type === "meta") {
                     const usage = event.raw?.usage || event.raw?.message?.usage;
                     if (usage) {
                         const inputTokens =
                             (Number(usage.input_tokens) || 0) +
                             (Number(usage.cache_read_input_tokens) || 0) +
-                            (Number(usage.cache_creation_input_tokens) || 0);
-                        const outputTokens = Number(usage.output_tokens) || 0;
+                            (Number(usage.cache_creation_input_tokens) || 0) +
+                            (Number(usage.prompt_tokens) || 0);
+                        const outputTokens =
+                            (Number(usage.output_tokens) || 0) +
+                            (Number(usage.completion_tokens) || 0);
                         if (inputTokens > 0 || outputTokens > 0) {
                             totalInputTokens += inputTokens;
                             totalOutputTokens += outputTokens;
@@ -324,7 +324,7 @@ export default function AIAnalyzerPage() {
             totalOutputTokens,
             totalTokens: totalInputTokens + totalOutputTokens,
             apiCallsWithTokens,
-            provider: "Anthropic API",
+            provider: "AI API",
         };
     };
 

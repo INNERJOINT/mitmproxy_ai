@@ -1,3 +1,5 @@
+import json
+
 from mitmproxy.test import tflow
 from mitmproxy.tools.web import subagent
 from mitmproxy.tools.web.app import flow_to_json
@@ -20,8 +22,6 @@ def _launcher_response(
     that names the tool, followed by ``content_block_delta`` events whose
     ``delta.partial_json`` chunks concatenate to the input JSON.
     """
-    import json
-
     cbs = {
         "type": "content_block_start",
         "index": index,
@@ -42,6 +42,82 @@ def _launcher_response(
         b"data: " + json.dumps(cbs).encode() + b"\n\n"
         b"data: " + json.dumps(cbd).encode() + b"\n\n"
     )
+
+
+def _openai_launcher_response_json(*, tool_use_id: str, subagent_type: str) -> bytes:
+    return json.dumps({
+        "id": "chatcmpl_1",
+        "object": "chat.completion",
+        "model": "gpt-4.1",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": tool_use_id,
+                            "type": "function",
+                            "function": {
+                                "name": "Agent",
+                                "arguments": json.dumps({
+                                    "subagent_type": subagent_type,
+                                    "description": "x",
+                                }),
+                            },
+                        }
+                    ],
+                },
+                "finish_reason": "tool_calls",
+            }
+        ],
+    }).encode()
+
+
+def _openai_launcher_response_sse(*, tool_use_id: str, subagent_type: str) -> bytes:
+    start = {
+        "id": "chatcmpl_1",
+        "object": "chat.completion.chunk",
+        "model": "gpt-4.1",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "tool_calls": [
+                        {
+                            "index": 0,
+                            "id": tool_use_id,
+                            "type": "function",
+                            "function": {"name": "Agent", "arguments": ""},
+                        }
+                    ]
+                },
+                "finish_reason": None,
+            }
+        ],
+    }
+    argument = json.dumps({"subagent_type": subagent_type, "description": "x"})
+    pieces = [argument[:10], argument[10:]]
+    chunks = [start]
+    for piece in pieces:
+        chunks.append({
+            "id": "chatcmpl_1",
+            "object": "chat.completion.chunk",
+            "model": "gpt-4.1",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {"index": 0, "function": {"arguments": piece}}
+                        ]
+                    },
+                    "finish_reason": None,
+                }
+            ],
+        })
+    return b"".join(b"data: " + json.dumps(chunk).encode() + b"\n\n" for chunk in chunks)
 
 
 def test_extract_subagent_marker():
@@ -139,6 +215,48 @@ def test_resolve_parent_links_skips_other_session_marks_orphan():
     assert child.metadata.get("subagent_is_orphan") is True
     j = flow_to_json(child)
     assert j.get("is_orphan") is True
+
+
+def test_parse_launches_openai_json_response():
+    parent = tflow.tflow(resp=True)
+    parent.response.set_content(
+        _openai_launcher_response_json(tool_use_id="call_1", subagent_type="Explore")
+    )
+
+    assert subagent.parse_launches(parent) == [
+        {"tool_use_id": "call_1", "subagent_type": "Explore", "description": "x"}
+    ]
+
+
+def test_parse_launches_openai_sse_response():
+    parent = tflow.tflow(resp=True)
+    parent.response.set_content(
+        _openai_launcher_response_sse(tool_use_id="call_1", subagent_type="Explore")
+    )
+
+    assert subagent.parse_launches(parent) == [
+        {"tool_use_id": "call_1", "subagent_type": "Explore", "description": "x"}
+    ]
+
+
+def test_resolve_parent_links_pairs_openai_launcher_to_subagent():
+    parent = tflow.tflow(resp=True)
+    parent.request.headers["x-claude-code-session-id"] = "sess-A"
+    parent.response.set_content(
+        _openai_launcher_response_sse(tool_use_id="call_1", subagent_type="Explore")
+    )
+
+    child = _flow_with_request_body(
+        b"SubagentStart hook additional context: Agent Explore started (deadbeef)",
+        session_id="sess-A",
+    )
+
+    subagent.resolve_parent_links([parent, child])
+    assert child.metadata.get("subagent_parent_id") == parent.id
+    assert child.metadata.get("subagent_is_orphan") is False
+    assert parent.metadata["subagent_launches"] == [
+        {"tool_use_id": "call_1", "subagent_type": "Explore", "description": "x"}
+    ]
 
 
 def test_resolve_parent_links_groups_run_by_instance_hex():

@@ -29,6 +29,7 @@ node_modules
 bower_components
 *.map
 sslkeylogfile.log
+chat.log
 .tox/
 coverage.xml
 web/coverage/

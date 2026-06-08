@@ -37,6 +37,8 @@ SUBAGENT_MARKER_RE = re.compile(
     rb"SubagentStart hook additional context:\s*Agent\s+(\S+)\s+started\s*\(([0-9a-fA-F]+)\)"
 )
 
+AGENT_TOOL_NAMES = ("Agent", "Task")
+
 # Either form may appear depending on Claude Code version / tool naming.
 # Real Anthropic SSE writes ``"name":"Agent"`` (no space); some tooling and
 # tests may pretty-print with a space, so accept both.
@@ -45,11 +47,11 @@ AGENT_TOOL_CALL_FAST_PATHS = (
     b'"name": "Agent"',
     b'"name":"Task"',
     b'"name": "Task"',
+    b'"tool_calls"',
 )
 
-# SSE chunks that contribute to a tool_use input. The Anthropic SSE
-# payload is one ``data: <json>`` line per event; we extract that JSON
-# blob and parse it structurally so field order does not matter.
+# SSE chunks that contribute to a tool_use input. Anthropic and OpenAI both
+# expose streaming payloads as one ``data: <json>`` line per event.
 _SSE_DATA_RE = re.compile(rb"^data:\s*(\{.*\})\s*$", re.MULTILINE)
 
 
@@ -87,34 +89,36 @@ def extract(flow: "HTTPFlow") -> dict:
 
 def response_launches_agent(flow: "HTTPFlow") -> bool:
     """True if the response body of ``flow`` contains an Agent/Task tool call."""
-    response = getattr(flow, "response", None)
-    if response is None:
-        return False
-    raw = response.raw_content
-    if not raw:
-        return False
-    return any(marker in raw for marker in AGENT_TOOL_CALL_FAST_PATHS)
+    return bool(parse_launches(flow))
 
 
-def parse_launches(flow: "HTTPFlow") -> list[dict]:
-    """Return a list of launch records from this flow's response.
+def _launch_record(tool_use_id: str, payload: object) -> dict:
+    subagent_type: str | None = None
+    description: str | None = None
+    if isinstance(payload, dict):
+        st = payload.get("subagent_type")
+        if isinstance(st, str):
+            subagent_type = st
+        desc = payload.get("description")
+        if isinstance(desc, str):
+            description = desc
+    return {
+        "tool_use_id": tool_use_id,
+        "subagent_type": subagent_type,
+        "description": description,
+    }
 
-    Each record is ``{"tool_use_id": str, "subagent_type": str | None,
-    "description": str | None}``. Returns ``[]`` if the response is not a
-    launcher or cannot be parsed.
 
-    The Anthropic API streams responses as SSE; we walk every
-    ``data: {...}`` event, group ``content_block_start`` (carrying
-    ``id``/``name``) with subsequent ``input_json_delta`` chunks for the
-    same ``index``, and JSON-decode the assembled input.
-    """
-    response = getattr(flow, "response", None)
-    if response is None:
-        return []
-    raw = response.raw_content
-    if not raw or not any(m in raw for m in AGENT_TOOL_CALL_FAST_PATHS):
-        return []
+def _loads_input_json(text: str) -> object:
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except ValueError:
+        return None
 
+
+def _parse_anthropic_launches(raw: bytes) -> list[dict]:
     starts: dict[int, tuple[str, str]] = {}  # idx -> (tool_use_id, name)
     deltas: dict[int, list[str]] = {}
 
@@ -134,7 +138,7 @@ def parse_launches(flow: "HTTPFlow") -> list[dict]:
             if block.get("type") != "tool_use":
                 continue
             name = block.get("name")
-            if name not in ("Agent", "Task"):
+            if name not in AGENT_TOOL_NAMES:
                 continue
             tool_use_id = block.get("id")
             if isinstance(tool_use_id, str):
@@ -151,40 +155,137 @@ def parse_launches(flow: "HTTPFlow") -> list[dict]:
                 if isinstance(partial, str):
                     deltas[idx].append(partial)
         elif etype == "input_json_delta" and isinstance(idx, int):
-            # Older payload shape — same fields at the top level.
             if idx in deltas:
                 partial = event.get("partial_json", "")
                 if isinstance(partial, str):
                     deltas[idx].append(partial)
 
-    if not starts:
+    return [
+        _launch_record(tool_use_id, _loads_input_json("".join(deltas.get(idx, []))))
+        for idx, (tool_use_id, _name) in starts.items()
+    ]
+
+
+def _openai_launch_from_tool_call(
+    tool_call: dict, fallback_id: str | None = None
+) -> dict | None:
+    function = tool_call.get("function")
+    if not isinstance(function, dict):
+        return None
+    name = function.get("name")
+    if name not in AGENT_TOOL_NAMES:
+        return None
+    tool_use_id = tool_call.get("id")
+    if not isinstance(tool_use_id, str):
+        tool_use_id = fallback_id
+    if not isinstance(tool_use_id, str):
+        return None
+    arguments = function.get("arguments", "")
+    payload = _loads_input_json(arguments) if isinstance(arguments, str) else arguments
+    return _launch_record(tool_use_id, payload)
+
+
+def _parse_openai_json_launches(raw: bytes) -> list[dict]:
+    try:
+        data = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        return []
+    if not isinstance(data, dict) or data.get("object") != "chat.completion":
         return []
 
     launches: list[dict] = []
-    for idx, (tool_use_id, _name) in starts.items():
-        joined = "".join(deltas.get(idx, []))
-        subagent_type: str | None = None
-        description: str | None = None
-        if joined:
-            try:
-                payload = json.loads(joined)
-            except ValueError:
-                payload = None
-            if isinstance(payload, dict):
-                st = payload.get("subagent_type")
-                if isinstance(st, str):
-                    subagent_type = st
-                desc = payload.get("description")
-                if isinstance(desc, str):
-                    description = desc
-        launches.append(
-            {
-                "tool_use_id": tool_use_id,
-                "subagent_type": subagent_type,
-                "description": description,
-            }
-        )
+    for choice in data.get("choices") or []:
+        if not isinstance(choice, dict):
+            continue
+        choice_index = choice.get("index", 0)
+        message = choice.get("message")
+        if not isinstance(message, dict):
+            continue
+        for i, tool_call in enumerate(message.get("tool_calls") or []):
+            if not isinstance(tool_call, dict):
+                continue
+            record = _openai_launch_from_tool_call(
+                tool_call, f"openai:{choice_index}:{i}"
+            )
+            if record is not None:
+                launches.append(record)
     return launches
+
+
+def _parse_openai_sse_launches(raw: bytes) -> list[dict]:
+    calls: dict[tuple[int, int], dict] = {}
+
+    for m in _SSE_DATA_RE.finditer(raw):
+        try:
+            event = json.loads(m.group(1).decode("utf-8", "replace"))
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if not isinstance(event, dict) or event.get("object") != "chat.completion.chunk":
+            continue
+        for choice in event.get("choices") or []:
+            if not isinstance(choice, dict):
+                continue
+            choice_index = choice.get("index", 0)
+            if not isinstance(choice_index, int):
+                choice_index = 0
+            delta = choice.get("delta")
+            if not isinstance(delta, dict):
+                continue
+            for tool_call in delta.get("tool_calls") or []:
+                if not isinstance(tool_call, dict):
+                    continue
+                tool_index = tool_call.get("index", 0)
+                if not isinstance(tool_index, int):
+                    tool_index = 0
+                key = (choice_index, tool_index)
+                call = calls.setdefault(
+                    key, {"id": None, "name": [], "arguments": []}
+                )
+                if isinstance(tool_call.get("id"), str):
+                    call["id"] = tool_call["id"]
+                function = tool_call.get("function")
+                if isinstance(function, dict):
+                    if isinstance(function.get("name"), str):
+                        call["name"].append(function["name"])
+                    if isinstance(function.get("arguments"), str):
+                        call["arguments"].append(function["arguments"])
+
+    launches: list[dict] = []
+    for (choice_index, tool_index), call in calls.items():
+        record = _openai_launch_from_tool_call(
+            {
+                "id": call["id"],
+                "function": {
+                    "name": "".join(call["name"]),
+                    "arguments": "".join(call["arguments"]),
+                },
+            },
+            f"openai:{choice_index}:{tool_index}",
+        )
+        if record is not None:
+            launches.append(record)
+    return launches
+
+
+def parse_launches(flow: "HTTPFlow") -> list[dict]:
+    """Return launch records from Anthropic or OpenAI chat-completion responses.
+
+    Each record is ``{"tool_use_id": str, "subagent_type": str | None,
+    "description": str | None}``. Returns ``[]`` if the response is not a
+    launcher or cannot be parsed.
+    """
+    response = getattr(flow, "response", None)
+    if response is None:
+        return []
+    raw = response.raw_content
+    if not raw or not any(m in raw for m in AGENT_TOOL_CALL_FAST_PATHS):
+        return []
+
+    return (
+        _parse_anthropic_launches(raw)
+        + _parse_openai_json_launches(raw)
+        + _parse_openai_sse_launches(raw)
+    )
 
 
 def _types_match(launcher_type: str | None, marker_type: str) -> bool:
@@ -292,8 +393,8 @@ def resolve_parent_links(flows) -> None:
             if launcher.time > run.first_time and run.first_time:
                 continue
             if any(
-                _types_match(l.get("subagent_type"), run.subagent_type)
-                for l in launcher.launches
+                _types_match(launch.get("subagent_type"), run.subagent_type)
+                for launch in launcher.launches
             ):
                 run.parent_flow_id = launcher.flow_id
                 launcher.children.append(run)

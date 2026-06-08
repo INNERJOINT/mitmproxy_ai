@@ -6,7 +6,11 @@ export class AnthropicAdapter implements AIProtocolParser {
     canParse(msg: WsMessage, parsedJson?: any): boolean {
         if (msg.from_client && parsedJson) {
             // Check for typical Anthropic Request
-            if (parsedJson.model && Array.isArray(parsedJson.messages)) {
+            if (
+                typeof parsedJson.model === "string" &&
+                parsedJson.model.startsWith("claude") &&
+                Array.isArray(parsedJson.messages)
+            ) {
                 return true;
             }
         } else if (!msg.from_client) {

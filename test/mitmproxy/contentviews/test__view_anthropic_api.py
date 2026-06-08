@@ -44,6 +44,82 @@ ANTHROPIC_SSE = (
     'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":12}}\n\n'
 ).encode()
 
+OPENAI_REQUEST = json.dumps({
+    "model": "gpt-4.1",
+    "stream": True,
+    "messages": [
+        {"role": "system", "content": "You are concise."},
+        {"role": "user", "content": [{"type": "text", "text": "Hello"}]},
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "Need a tool.",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "Read",
+                        "arguments": '{"file_path":"/tmp/a"}',
+                    },
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_1", "content": "file contents"},
+    ],
+    "tools": [
+        {
+            "type": "function",
+            "function": {"name": "Read", "description": "Read a file"},
+        }
+    ],
+}).encode()
+
+OPENAI_RESPONSE_JSON = json.dumps({
+    "id": "chatcmpl_1",
+    "object": "chat.completion",
+    "model": "gpt-4.1",
+    "choices": [
+        {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "Done",
+                "tool_calls": [
+                    {
+                        "id": "call_2",
+                        "type": "function",
+                        "function": {
+                            "name": "Agent",
+                            "arguments": '{"subagent_type":"Explore"}',
+                        },
+                    }
+                ],
+            },
+            "finish_reason": "tool_calls",
+        }
+    ],
+    "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+}).encode()
+
+OPENAI_SSE = (
+    'data: {"id":"1","object":"chat.completion.chunk","model":"gpt-4.1",'
+    '"choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"Think"},'
+    '"finish_reason":null}],"usage":null}\n\n'
+    'data: {"id":"1","object":"chat.completion.chunk","model":"gpt-4.1",'
+    '"choices":[{"index":0,"delta":{"content":"Hi"},"finish_reason":null}],"usage":null}\n\n'
+    'data: {"id":"1","object":"chat.completion.chunk","model":"gpt-4.1",'
+    '"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_3",'
+    '"type":"function","function":{"name":"Agent","arguments":""}}]},"finish_reason":null}],"usage":null}\n\n'
+    'data: {"id":"1","object":"chat.completion.chunk","model":"gpt-4.1",'
+    '"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"subagent_type\\":"}}]},'
+    '"finish_reason":null}],"usage":null}\n\n'
+    'data: {"id":"1","object":"chat.completion.chunk","model":"gpt-4.1",'
+    '"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"Explore\\"}"}}]},'
+    '"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}\n\n'
+    "data: [DONE]\n\n"
+).encode()
+
 
 def test_render_priority_request():
     assert 2 == anthropic_api.render_priority(
@@ -63,11 +139,25 @@ def test_render_priority_sse():
     )
 
 
-def test_render_priority_not_anthropic():
-    assert 0 == anthropic_api.render_priority(
-        b'{"model": "gpt-4", "messages": []}',
-        Metadata(content_type="application/json"),
+def test_render_priority_openai_request():
+    assert 2 == anthropic_api.render_priority(
+        OPENAI_REQUEST, Metadata(content_type="application/json")
     )
+
+
+def test_render_priority_openai_response_json():
+    assert 2 == anthropic_api.render_priority(
+        OPENAI_RESPONSE_JSON, Metadata(content_type="application/json")
+    )
+
+
+def test_render_priority_openai_sse():
+    assert 2 == anthropic_api.render_priority(
+        OPENAI_SSE, Metadata(content_type="text/event-stream")
+    )
+
+
+def test_render_priority_not_llm_api():
     assert 0 == anthropic_api.render_priority(
         b'{"key": "value"}', Metadata(content_type="application/json")
     )
@@ -97,6 +187,40 @@ def test_prettify_sse():
     assert "Anthropic API Stream" in result
     assert "Hello world!" in result
     assert "Output Tokens: 12" in result
+
+
+def test_prettify_openai_request():
+    result = anthropic_api.prettify(OPENAI_REQUEST, Metadata())
+    assert "OpenAI Chat Completions Request" in result
+    assert "gpt-4.1" in result
+    assert "[Reasoning]" in result
+    assert "Need a tool." in result
+    assert "[Tool Call: Read]" in result
+    assert '"file_path": "/tmp/a"' in result
+    assert "[Tool Result: call_1]" in result
+    assert "Read a file" in result
+
+
+def test_prettify_openai_response_json():
+    result = anthropic_api.prettify(OPENAI_RESPONSE_JSON, Metadata())
+    assert "OpenAI Chat Completions Response" in result
+    assert "10 in / 5 out" in result
+    assert "Done" in result
+    assert "[Tool Call: Agent]" in result
+    assert '"subagent_type": "Explore"' in result
+    assert "[Finish Reason: tool_calls]" in result
+
+
+def test_prettify_openai_sse():
+    result = anthropic_api.prettify(OPENAI_SSE, Metadata())
+    assert "OpenAI Chat Completions Stream" in result
+    assert "10 in / 5 out" in result
+    assert "[Reasoning]" in result
+    assert "Think" in result
+    assert "Hi" in result
+    assert "[Tool Call: Agent]" in result
+    assert '"subagent_type": "Explore"' in result
+    assert "[Finish Reason: tool_calls]" in result
 
 
 def test_prettify_invalid():

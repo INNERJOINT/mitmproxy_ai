@@ -15,6 +15,23 @@ here = Path(__file__).parent.absolute()
 filename = here / "../src/js/__tests__/ducks/_tflow.ts"
 
 
+def _with_optional_flow_fields(flow_json: dict) -> dict:
+    flow_json.update(
+        {
+            "is_subagent": False,
+            "subagent_instance_id": "",
+            "subagent_type": "",
+            "parent_flow_id": "",
+            "is_orphan": False,
+            "is_launcher": False,
+            "child_subagent_runs": [],
+            "subagent_launches": [],
+            "claude_session_id": "",
+        }
+    )
+    return flow_json
+
+
 async def make() -> str:
     tf_http = tflow.tflow(resp=True, err=True, ws=True)
     tf_http.id = "d91165be-ca1f-4612-88a9-c0f8696f3e29"
@@ -64,16 +81,16 @@ async def make() -> str:
         "}\n"
         % (
             textwrap.indent(
-                json.dumps(app.flow_to_json(tf_http), indent=4, sort_keys=True), "    "
+                json.dumps(_with_optional_flow_fields(app.flow_to_json(tf_http)), indent=4, sort_keys=True), "    "
             ),
             textwrap.indent(
-                json.dumps(app.flow_to_json(tf_tcp), indent=4, sort_keys=True), "    "
+                json.dumps(_with_optional_flow_fields(app.flow_to_json(tf_tcp)), indent=4, sort_keys=True), "    "
             ),
             textwrap.indent(
-                json.dumps(app.flow_to_json(tf_udp), indent=4, sort_keys=True), "    "
+                json.dumps(_with_optional_flow_fields(app.flow_to_json(tf_udp)), indent=4, sort_keys=True), "    "
             ),
             textwrap.indent(
-                json.dumps(app.flow_to_json(tf_dns), indent=4, sort_keys=True), "    "
+                json.dumps(_with_optional_flow_fields(app.flow_to_json(tf_dns)), indent=4, sort_keys=True), "    "
             ),
         )
     )
