@@ -130,6 +130,14 @@ def _is_openai_responses_sse(text: str) -> bool:
     )
 
 
+def _is_llm_sse(text: str) -> bool:
+    return (
+        _is_anthropic_sse(text)
+        or _is_openai_chat_sse(text)
+        or _is_openai_responses_sse(text)
+    )
+
+
 def _has_content_type(content_type: str | None, expected: str) -> bool:
     return content_type is not None and content_type.split(";", 1)[0].strip() == expected
 
@@ -826,12 +834,13 @@ class AnthropicApiContentview(Contentview):
 
         text = data.decode("utf-8", errors="replace")
 
-        if _has_content_type(metadata.content_type, "text/event-stream") and (
-            _is_anthropic_sse(text)
-            or _is_openai_chat_sse(text)
-            or _is_openai_responses_sse(text)
+        if _has_content_type(metadata.content_type, "text/event-stream") and _is_llm_sse(
+            text
         ):
             return 2
+
+        if _is_llm_sse(text):
+            return 1.5
 
         if _has_content_type(metadata.content_type, "application/json"):
             try:

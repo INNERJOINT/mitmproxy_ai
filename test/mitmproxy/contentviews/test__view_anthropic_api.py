@@ -262,6 +262,10 @@ def test_render_priority_openai_responses_sse():
     )
 
 
+def test_render_priority_openai_responses_sse_without_content_type():
+    assert 1.5 == anthropic_api.render_priority(OPENAI_RESPONSES_SSE, Metadata())
+
+
 def test_render_priority_not_llm_api():
     assert 0 == anthropic_api.render_priority(
         b'{"key": "value"}', Metadata(content_type="application/json")
