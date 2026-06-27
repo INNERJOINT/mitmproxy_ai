@@ -425,8 +425,13 @@ class WebSocketEventBroadcaster(tornado.websocket.WebSocketHandler, AuthRequestH
         )
 
     def on_close(self):
+        self._cleanup()
+
+    def _cleanup(self) -> None:
         self.connections.discard(self)
-        self._send_task.cancel()
+        send_task = getattr(self, "_send_task", None)
+        if send_task and send_task is not asyncio.current_task() and not send_task.done():
+            send_task.cancel()
 
     @classmethod
     def broadcast(cls, **kwargs):
@@ -438,12 +443,15 @@ class WebSocketEventBroadcaster(tornado.websocket.WebSocketHandler, AuthRequestH
         self._send_queue.put_nowait(message)
 
     async def send_task(self):
-        while True:
-            message = await self._send_queue.get()
-            try:
-                await self.write_message(message)
-            except tornado.websocket.WebSocketClosedError:
-                self.on_close()
+        try:
+            while True:
+                message = await self._send_queue.get()
+                try:
+                    await self.write_message(message)
+                except tornado.websocket.WebSocketClosedError:
+                    return
+        finally:
+            self._cleanup()
 
     @staticmethod
     def _json_dumps(d):

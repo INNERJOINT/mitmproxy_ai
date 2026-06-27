@@ -1,3 +1,4 @@
+import asyncio
 import gzip
 import importlib
 import json
@@ -17,6 +18,7 @@ from mitmproxy import options
 from mitmproxy.test import tflow
 from mitmproxy.tools.web import app
 from mitmproxy.tools.web import master as webmaster
+from mitmproxy.utils import asyncio_utils
 
 here = Path(__file__).parent.absolute()
 
@@ -49,6 +51,29 @@ async def test_generated_files(filename):
 def test_all_handlers_have_auth():
     for _, handler in app.handlers:
         assert issubclass(handler, app.AuthRequestHandler)
+
+
+async def test_websocket_send_task_cleans_up_after_write_error():
+    class Connection:
+        connections = set()
+
+    conn = Connection()
+    conn._send_queue = asyncio.Queue()
+    conn.write_message = mock.AsyncMock(side_effect=OSError("client gone"))
+    conn._cleanup = app.WebSocketEventBroadcaster._cleanup.__get__(conn)
+    conn.send_task = app.WebSocketEventBroadcaster.send_task.__get__(conn)
+
+    conn.connections.add(conn)
+    conn._send_task = asyncio_utils.create_task(
+        conn.send_task(),
+        name="WebSocket send task test",
+        keep_ref=False,
+    )
+    conn._send_queue.put_nowait(b"{}")
+
+    with pytest.raises(OSError):
+        await conn._send_task
+    assert conn not in conn.connections
 
 
 @pytest.mark.usefixtures("no_tornado_logging", "tdata")
@@ -101,6 +126,13 @@ class TestApp(tornado.testing.AsyncHTTPTestCase):
             body=json.dumps(data),
             headers={"Content-Type": "application/json"},
         )
+
+    async def wait_for_client_connection_count(self, expected: int) -> None:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 2
+        while len(app.ClientConnection.connections) != expected and loop.time() < deadline:
+            await asyncio.sleep(0.01)
+        assert len(app.ClientConnection.connections) == expected
 
     def test_index(self):
         response = self.fetch("/")
@@ -449,6 +481,32 @@ class TestApp(tornado.testing.AsyncHTTPTestCase):
         # trigger on_close by opening a second connection.
         ws_client2 = yield websocket.websocket_connect(ws_req)
         ws_client2.close()
+        yield self.wait_for_client_connection_count(0)
+
+    @tornado.testing.gen_test
+    async def test_websocket_connection_pruned_after_close(self):
+        ws_req = httpclient.HTTPRequest(
+            f"ws://localhost:{self.get_http_port()}/updates",
+            headers={"Cookie": self.auth_cookie},
+        )
+
+        ws_client = await websocket.websocket_connect(ws_req)
+        assert len(app.ClientConnection.connections) == 1
+        ws_client.close()
+        await self.wait_for_client_connection_count(0)
+
+    @tornado.testing.gen_test
+    async def test_websocket_repeated_connect_disconnect_no_leak(self):
+        ws_req = httpclient.HTTPRequest(
+            f"ws://localhost:{self.get_http_port()}/updates",
+            headers={"Cookie": self.auth_cookie},
+        )
+
+        for _ in range(10):
+            ws_client = await websocket.websocket_connect(ws_req)
+            assert len(app.ClientConnection.connections) == 1
+            ws_client.close()
+            await self.wait_for_client_connection_count(0)
 
     @tornado.testing.gen_test
     def test_websocket_filter_application(self):
