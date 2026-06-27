@@ -513,6 +513,8 @@ class View(collections.abc.Sequence):
         Adds a flow to the state. If the flow already exists, it is
         ignored.
         """
+        if not getattr(ctx.options, "web_capture", True):
+            return
         for f in flows:
             if f.id not in self._store:
                 self._store[f.id] = f
@@ -579,6 +581,8 @@ class View(collections.abc.Sequence):
             self.set_reversed(ctx.options.view_order_reversed)
         if "console_focus_follow" in updated:
             self.focus_follow = ctx.options.console_focus_follow
+        if "web_capture" in updated and not getattr(ctx.options, "web_capture", True):
+            self.clear()
 
     def requestheaders(self, f):
         self.add([f])
@@ -635,6 +639,8 @@ class View(collections.abc.Sequence):
         """
         Updates a list of flows. If flow is not in the state, it's ignored.
         """
+        if not getattr(ctx.options, "web_capture", True):
+            return
         for f in flows:
             if f.id in self._store:
                 if self.filter(f):

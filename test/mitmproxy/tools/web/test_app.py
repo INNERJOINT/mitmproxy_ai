@@ -438,9 +438,14 @@ class TestApp(tornado.testing.AsyncHTTPTestCase):
         j = get_json(self.fetch("/options"))
         assert isinstance(j, dict)
         assert isinstance(j["anticache"], dict)
+        assert j["web_capture"]["default"] is True
+        assert j["web_capture"]["value"] is True
+        assert j["web_capture"]["type"] == "bool"
 
     def test_option_update(self):
         assert self.put_json("/options", {"anticache": True}).code == 200
+        assert self.put_json("/options", {"web_capture": False}).code == 200
+        assert self.master.options.web_capture is False
         assert self.put_json("/options", {"wtf": True}).code == 400
         assert self.put_json("/options", {"anticache": "foo"}).code == 400
 

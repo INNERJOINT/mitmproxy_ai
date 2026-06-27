@@ -1,3 +1,30 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`CaptureMenu Component should render correctly 1`] = `<DocumentFragment />`;
+exports[`CaptureMenu Component should render correctly 1`] = `
+<DocumentFragment>
+  <div
+    class="menu-group"
+  >
+    <div
+      class="menu-content"
+    >
+      <div
+        class="menu-entry"
+      >
+        <label>
+          <input
+            checked=""
+            type="checkbox"
+          />
+          Capture flows
+        </label>
+      </div>
+    </div>
+    <div
+      class="menu-legend"
+    >
+      Capture Options
+    </div>
+  </div>
+</DocumentFragment>
+`;

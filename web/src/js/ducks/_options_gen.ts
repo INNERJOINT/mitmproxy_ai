@@ -95,6 +95,7 @@ export interface OptionsState {
     view_order: string;
     view_order_reversed: boolean;
     web_auth: boolean;
+    web_capture: boolean;
     web_columns: string[];
     web_debug: boolean;
     web_host: string;
@@ -203,6 +204,7 @@ export const defaultState: OptionsState = {
     view_order: "time",
     view_order_reversed: false,
     web_auth: false,
+    web_capture: true,
     web_columns: ["tls", "icon", "path", "method", "status", "size", "time"],
     web_debug: false,
     web_host: "127.0.0.1",

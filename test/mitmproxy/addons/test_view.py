@@ -660,6 +660,44 @@ def test_properties():
     assert v.get_marked()
 
 
+def test_web_capture():
+    v = view.View()
+    f = tft()
+    with taddons.context(v) as tctx:
+        tctx.options.add_option(
+            "web_capture",
+            bool,
+            True,
+            "Capture and retain new flows in the web UI.",
+        )
+
+        v.requestheaders(f)
+        assert list(v) == [f]
+
+        rec_refresh = []
+
+        def record_refresh():
+            rec_refresh.append(True)
+
+        v.sig_view_refresh.connect(record_refresh)
+        tctx.configure(v, web_capture=False)
+        assert not list(v)
+        assert not v.get_by_id(f.id)
+        assert rec_refresh
+
+        f2 = tft()
+        v.requestheaders(f2)
+        assert not list(v)
+        assert not v.get_by_id(f2.id)
+        v.update([f2])
+        assert not list(v)
+
+        tctx.configure(v, web_capture=True)
+        f3 = tft()
+        v.requestheaders(f3)
+        assert list(v) == [f3]
+
+
 def test_configure():
     v = view.View()
     with taddons.context(v) as tctx:
