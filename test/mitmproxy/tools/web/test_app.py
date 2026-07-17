@@ -134,6 +134,10 @@ class TestApp(tornado.testing.AsyncHTTPTestCase):
             await asyncio.sleep(0.01)
         assert len(app.ClientConnection.connections) == expected
 
+    def test_websocket_ping_settings(self):
+        assert self._app.settings["websocket_ping_interval"] == 30
+        assert self._app.settings["websocket_ping_timeout"] == 30
+
     def test_index(self):
         response = self.fetch("/")
         assert response.code == 200
@@ -499,6 +503,59 @@ class TestApp(tornado.testing.AsyncHTTPTestCase):
         assert len(app.ClientConnection.connections) == 1
         ws_client.close()
         await self.wait_for_client_connection_count(0)
+
+    @tornado.testing.gen_test
+    async def test_websocket_ping_timeout_cleans_up_connection(self):
+        ws_client = None
+        handler = None
+        protocol = None
+        original_handle_message = None
+        existing_connections = app.ClientConnection.connections.copy()
+        old_ping_interval = self._app.settings["websocket_ping_interval"]
+        old_ping_timeout = self._app.settings["websocket_ping_timeout"]
+        self._app.settings["websocket_ping_interval"] = 0.1
+        self._app.settings["websocket_ping_timeout"] = 0.1
+
+        try:
+            ws_req = httpclient.HTTPRequest(
+                f"ws://localhost:{self.get_http_port()}/updates",
+                headers={"Cookie": self.auth_cookie},
+            )
+            ws_client = await websocket.websocket_connect(ws_req)
+            await self.wait_for_client_connection_count(len(existing_connections) + 1)
+            (handler,) = app.ClientConnection.connections - existing_connections
+            send_task = handler._send_task
+
+            protocol = ws_client.protocol
+            assert protocol is not None
+            original_handle_message = protocol._handle_message
+
+            def ignore_ping(opcode: int, data: bytes):
+                if opcode == 0x9:
+                    return None
+                return original_handle_message(opcode, data)
+
+            protocol._handle_message = ignore_ping
+
+            assert await ws_client.read_message() is None
+            assert ws_client.close_code == 1000
+            assert ws_client.close_reason == "ping timed out"
+            await self.wait_for_client_connection_count(len(existing_connections))
+            assert handler.ws_connection is None
+
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(send_task, timeout=2)
+            assert send_task.cancelled()
+        finally:
+            self._app.settings["websocket_ping_interval"] = old_ping_interval
+            self._app.settings["websocket_ping_timeout"] = old_ping_timeout
+            if protocol is not None and original_handle_message is not None:
+                protocol._handle_message = original_handle_message
+            if ws_client is not None:
+                ws_client.close()
+            if handler is not None and handler in app.ClientConnection.connections:
+                handler.close()
+            await self.wait_for_client_connection_count(len(existing_connections))
 
     @tornado.testing.gen_test
     async def test_websocket_repeated_connect_disconnect_no_leak(self):

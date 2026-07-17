@@ -969,6 +969,8 @@ class Application(tornado.web.Application):
             cookie_secret=secrets.token_bytes(32),
             debug=debug,
             autoreload=False,
+            websocket_ping_interval=30,
+            websocket_ping_timeout=30,
             transforms=[GZipContentAndFlowFiles],
             is_valid_password=auth_addon.is_valid_password,
             auth_cookie_name=auth_addon.auth_cookie_name,
